@@ -763,6 +763,46 @@ void Emulator::SetUsr(const std::string& user)
 	m_usr = user;
 }
 
+void Emulator::SetRsxCaptureReplayLimit(u64 limit)
+{
+	m_rsx_capture_frame_repeat_limit = limit;
+}
+
+void Emulator::ResetRsxCaptureReplayCounter()
+{
+	m_rsx_capture_frame_repeat_counter = 0;
+}
+
+bool Emulator::OnRsxCaptureLoopFinished()
+{
+	const u64 limit = m_rsx_capture_frame_repeat_limit.load();
+
+	if (limit == 0)
+	{
+		m_rsx_capture_frame_repeat_counter++;
+		return true;
+	}
+
+	const u64 current = m_rsx_capture_frame_repeat_counter.fetch_add(1) + 1;
+
+	if (current >= limit)
+	{
+		if (current == limit)
+		{
+			m_rsx_capture_frame_repeat_limit = 0;
+			CallFromMainThread([]()
+			{
+				Emu.GracefulShutdown(false);
+				Emu.Quit(true);
+			}, nullptr, false);
+		}
+
+		return false;
+	}
+
+	return true;
+}
+
 bool Emulator::BootRsxCapture(const std::string& path)
 {
 	if (m_state != system_state::stopped || m_restrict_emu_state_change)
@@ -895,6 +935,7 @@ bool Emulator::BootRsxCapture(const std::string& path)
 	m_ar.reset();
 
 	Init();
+	ResetRsxCaptureReplayCounter();
 	g_cfg.video.disable_on_disk_shader_cache.set(true);
 
 	vm::init();
