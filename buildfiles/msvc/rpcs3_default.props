@@ -3,7 +3,7 @@
   <ImportGroup Label="PropertySheets" />
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
-    <IncludePath>.\;..\;$(SolutionDir)3rdparty\asmjit\asmjit\src;$(SolutionDir)3rdparty\yaml-cpp\yaml-cpp\include;$(SolutionDir)3rdparty\ffmpeg\include;$(VC_IncludePath);$(WindowsSDK_IncludePath);$(UniversalCRT_IncludePath);$(SolutionDir)3rdparty\libpng\libpng;$(SolutionDir)3rdparty\GL;$(SolutionDir)3rdparty\stblib\stb;$(SolutionDir)3rdparty\openal\openal-soft\include\AL;$(SolutionDir)3rdparty\pugixml\src;$(SolutionDir)3rdparty\hidapi\hidapi</IncludePath>
+    <IncludePath>.\;..\;$(SolutionDir)3rdparty\asmjit\asmjit\src;$(SolutionDir)3rdparty\yaml-cpp\yaml-cpp\include;$(SolutionDir)3rdparty\ffmpeg\include;$(VC_IncludePath);$(WindowsSDK_IncludePath);$(UniversalCRT_IncludePath);$(SolutionDir)3rdparty\libpng\libpng;$(SolutionDir)3rdparty\GL;$(SolutionDir)3rdparty\stblib\stb;$(SolutionDir)3rdparty\openal\openal-soft\include\AL;$(SolutionDir)3rdparty\pugixml\src;$(SolutionDir)3rdparty\hidapi\hidapi;$(SolutionDir)3rdparty\xxhash</IncludePath>
     <OutDir>$(SolutionDir)build\lib\$(Configuration)-$(Platform)\</OutDir>
     <LibraryPath>$(SolutionDir)build\lib\$(Configuration)-$(Platform)\;$(UniversalCRT_LibraryPath_x64);$(LibraryPath)</LibraryPath>
     <IntDir>$(SolutionDir)build\tmp\$(ProjectName)-$(Configuration)-$(Platform)\</IntDir>
@@ -28,6 +28,7 @@
     </ClCompile>
     <Link>
       <AdditionalDependencies>
+        xxhash.lib;
         ws2_32.lib;
         Iphlpapi.lib;
         Bcrypt.lib;

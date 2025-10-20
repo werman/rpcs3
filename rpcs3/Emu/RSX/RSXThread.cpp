@@ -83,9 +83,28 @@ bool serialize<rsx::frame_capture_data>(utils::serial& ar, rsx::frame_capture_da
 }
 
 template <>
+bool serialize<rsx::frame_capture_data_v5>(utils::serial& ar, rsx::frame_capture_data_v5& o)
+{
+	ar(o.magic, o.version, o.LE_format);
+
+	if (o.magic != rsx::c_fc_magic || o.version != rsx::c_fc_version_v5 || o.LE_format != u32{std::endian::little == std::endian::native})
+	{
+		return false;
+	}
+
+	return ar(o.tile_map, o.memory_map, o.memory_data_map, o.display_buffers_map, o.replay_commands, o.reg_state);
+}
+
+template <>
 bool serialize<rsx::frame_capture_data::memory_block_data>(utils::serial& ar, rsx::frame_capture_data::memory_block_data& o)
 {
 	return ar(o.data);
+}
+
+template <>
+bool serialize<const rsx::frame_capture_data::memory_block_data>(utils::serial& ar, const rsx::frame_capture_data::memory_block_data& o)
+{
+	return serialize(ar, const_cast<rsx::frame_capture_data::memory_block_data&>(o));
 }
 
 template <>

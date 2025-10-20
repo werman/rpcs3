@@ -9,10 +9,90 @@
 
 #include "util/asm.hpp"
 
+#include <algorithm>
 #include <thread>
 
 namespace rsx
 {
+	std::unique_ptr<frame_capture_data> convert_frame_capture_v5_to_v6(frame_capture_data_v5&& frame, std::string& error)
+	{
+		auto converted = std::make_unique<frame_capture_data>();
+		converted->magic = frame.magic;
+		converted->version = c_fc_version;
+		converted->LE_format = frame.LE_format;
+		converted->replay_commands = std::move(frame.replay_commands);
+		converted->reg_state = std::move(frame.reg_state);
+
+		u64 max_id = converted->memory_indexer;
+
+		for (auto& [id, state] : frame.tile_map)
+		{
+			const auto it = converted->tile_map.find(state);
+			if (it == converted->tile_map.end())
+			{
+				converted->tile_map.emplace(state, id);
+			}
+			else if (it->second != id)
+			{
+				error = "tile state id collision while converting v5 capture";
+				return nullptr;
+			}
+
+			max_id = std::max(max_id, id);
+		}
+
+		for (auto& [id, state] : frame.display_buffers_map)
+		{
+			const auto it = converted->display_buffers_map.find(state);
+			if (it == converted->display_buffers_map.end())
+			{
+				converted->display_buffers_map.emplace(state, id);
+			}
+			else if (it->second != id)
+			{
+				error = "display buffer id collision while converting v5 capture";
+				return nullptr;
+			}
+
+			max_id = std::max(max_id, id);
+		}
+
+		for (auto& [id, block] : frame.memory_map)
+		{
+			const auto it = converted->memory_map.find(block);
+			if (it == converted->memory_map.end())
+			{
+				converted->memory_map.emplace(block, id);
+			}
+			else if (it->second != id)
+			{
+				error = "memory block id collision while converting v5 capture";
+				return nullptr;
+			}
+
+			max_id = std::max(max_id, id);
+		}
+
+		for (auto& [id, data] : frame.memory_data_map)
+		{
+			const auto it = converted->memory_data_map.find(data);
+			if (it == converted->memory_data_map.end())
+			{
+				converted->memory_data_map.emplace(std::move(data), id);
+			}
+			else if (it->second != id)
+			{
+				error = "memory data id collision while converting v5 capture";
+				return nullptr;
+			}
+
+			max_id = std::max(max_id, id);
+		}
+
+		converted->memory_indexer = std::max(converted->memory_indexer, max_id);
+		return converted;
+	}
+
 	be_t<u32> rsx_replay_thread::allocate_context()
 	{
 		u32 buffer_size = 4;

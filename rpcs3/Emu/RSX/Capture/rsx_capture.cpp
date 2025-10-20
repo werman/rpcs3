@@ -351,7 +351,6 @@ namespace rsx
 
 			frame_capture_data::display_buffers_state dbstate;
 			dbstate.count = rsx->display_buffers_count;
-
 			// should this only happen on flip?
 			for (u32 i = 0; i < rsx->display_buffers_count; ++i)
 			{

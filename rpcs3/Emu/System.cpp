@@ -856,7 +856,6 @@ bool Emulator::BootRsxCapture(const std::string& path)
 		return false;
 	}
 
-	std::unique_ptr<rsx::frame_capture_data> frame = std::make_unique<rsx::frame_capture_data>();
 	utils::serial load;
 	load.set_reading_state();
 
@@ -889,31 +888,71 @@ bool Emulator::BootRsxCapture(const std::string& path)
 		load.m_file_handler = make_uncompressed_serialization_file_handler(std::move(in_file));
 	}
 
-	load(*frame);
+	u32 magic = 0;
+	u32 version = 0;
+	u32 le_format = 0;
 
-	if (frame->magic != rsx::c_fc_magic)
+	if (!load(magic, version, le_format))
 	{
 		m_state = system_state::stopped;
 		sys_log.error("Invalid rsx capture file!");
 		return false;
 	}
 
-	if (frame->version != rsx::c_fc_version)
+	load.seek_pos(0);
+
+	if (magic != rsx::c_fc_magic)
 	{
 		m_state = system_state::stopped;
-		sys_log.error("Rsx capture file version not supported! Expected %d, found %d", +rsx::c_fc_version, frame->version);
+		sys_log.error("Invalid rsx capture file!");
 		return false;
 	}
 
-	if (frame->LE_format != u32{std::endian::little == std::endian::native})
+	if (le_format != u32{std::endian::little == std::endian::native})
 	{
 		m_state = system_state::stopped;
 
 		static constexpr std::string_view machines[2]{"Big-Endian", "Little-Endian"};
 
 		sys_log.error("Rsx capture byte endianness not supported! Expected %s format, found %s format"
-			, machines[frame->LE_format ^ 1], machines[frame->LE_format]);
+			, machines[le_format ^ 1], machines[le_format]);
 
+		return false;
+	}
+
+	std::unique_ptr<rsx::frame_capture_data> frame;
+
+	if (version == rsx::c_fc_version)
+	{
+		frame = std::make_unique<rsx::frame_capture_data>();
+		load(*frame);
+	}
+	else if (version == rsx::c_fc_version_v5)
+	{
+		rsx::frame_capture_data_v5 frame_v5;
+		load(frame_v5);
+
+		std::string error;
+		frame = rsx::convert_frame_capture_v5_to_v6(std::move(frame_v5), error);
+		if (!frame)
+		{
+			m_state = system_state::stopped;
+			sys_log.error("Rsx capture conversion failed: %s", error);
+			return false;
+		}
+	}
+	else
+	{
+		m_state = system_state::stopped;
+		sys_log.error("Rsx capture file version not supported! Expected %d or %d, found %d"
+			, +rsx::c_fc_version_v5, +rsx::c_fc_version, version);
+		return false;
+	}
+
+	if (!load.is_valid())
+	{
+		m_state = system_state::stopped;
+		sys_log.error("Invalid rsx capture file!");
 		return false;
 	}
 
