@@ -95,6 +95,19 @@ add_subdirectory(glslang EXCLUDE_FROM_ALL)
 add_subdirectory(yaml-cpp)
 
 
+# xxHash
+if (USE_SYSTEM_XXHASH)
+	pkg_check_modules(XXHASH REQUIRED IMPORTED_TARGET libxxhash)
+	add_library(xxhash INTERFACE)
+	target_link_libraries(xxhash INTERFACE PkgConfig::XXHASH)
+else()
+	set(XXHASH_BUNDLED_MODE ON)
+	set(XXHASH_BUILD_XXHSUM OFF)
+	set(BUILD_SHARED_LIBS OFF CACHE BOOL "Make xxHash build static libs")
+	add_subdirectory(xxHash/cmake_unofficial EXCLUDE_FROM_ALL)
+	target_include_directories(xxhash INTERFACE xxHash)
+endif()
+
 # OpenGL
 
 if (NOT ANDROID AND NOT APPLE)
@@ -366,6 +379,7 @@ add_library(3rdparty::protobuf ALIAS 3rdparty_protobuf)
 add_library(3rdparty::pugixml ALIAS pugixml)
 add_library(3rdparty::glslang ALIAS 3rdparty_glslang)
 add_library(3rdparty::yaml-cpp ALIAS yaml-cpp)
+add_library(3rdparty::xxhash ALIAS xxhash)
 add_library(3rdparty::hidapi ALIAS 3rdparty_hidapi)
 add_library(3rdparty::libpng ALIAS ${LIBPNG_TARGET})
 add_library(3rdparty::opengl ALIAS 3rdparty_opengl)

@@ -5,12 +5,16 @@
 
 #include <unordered_map>
 #include <unordered_set>
+#include <algorithm>
+#include <string>
+#include <string_view>
 
 namespace rsx
 {
 	enum : u32
 	{
 		c_fc_magic = "RRC"_u32,
+		c_fc_version_v5 = 0x5,
 		c_fc_version = 0x6,
 	};
 
@@ -154,9 +158,42 @@ namespace rsx
 			memory_map.clear();
 			replay_commands.clear();
 			reg_state = method_registers;
+			memory_indexer = 0x1234;
 		}
 	};
 
+	struct frame_capture_data_v5
+	{
+		using memory_block = frame_capture_data::memory_block;
+		using memory_block_data = frame_capture_data::memory_block_data;
+		using replay_command = frame_capture_data::replay_command;
+		using tile_state = frame_capture_data::tile_state;
+		using display_buffers_state = frame_capture_data::display_buffers_state;
+
+		u32 magic = c_fc_magic;
+		u32 version = c_fc_version_v5;
+		u32 LE_format = std::endian::little == std::endian::native;
+
+		// Hashmap of holding various states for tile
+		std::unordered_map<u64, tile_state> tile_map;
+
+		// Hashmap of various memory 'changes' that can be applied to ps3 memory
+		std::unordered_map<u64, memory_block> memory_map;
+
+		// Hashmap of memory blocks that can be applied, this is split from above for size decrease
+		std::unordered_map<u64, memory_block_data> memory_data_map;
+
+		// Display buffer state map
+		std::unordered_map<u64, display_buffers_state> display_buffers_map;
+
+		// Actual command queue to hold everything above
+		std::vector<replay_command> replay_commands;
+
+		// Initial registers state at the beginning of the capture
+		rsx::rsx_state reg_state;
+	};
+
+	std::unique_ptr<frame_capture_data> convert_frame_capture_v5_to_v6(frame_capture_data_v5&& frame, std::string& error);
 
 	class rsx_replay_thread : public cpu_thread
 	{
