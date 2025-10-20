@@ -97,34 +97,34 @@ bool gui_application::Init()
 	setWindowIcon(QIcon(":/rpcs3.ico"));
 #endif
 
-	if (!rpcs3::is_release_build() && !rpcs3::is_local_build())
-	{
-		const std::string_view branch_name = rpcs3::get_full_branch();
-		gui_log.warning("Experimental Build Warning! Build origin: %s", branch_name);
+	// if (!rpcs3::is_release_build() && !rpcs3::is_local_build())
+	// {
+	// 	const std::string_view branch_name = rpcs3::get_full_branch();
+	// 	gui_log.warning("Experimental Build Warning! Build origin: %s", branch_name);
 
-		QMessageBox msg;
-		msg.setWindowModality(Qt::WindowModal);
-		msg.setWindowTitle(tr("Experimental Build Warning"));
-		msg.setIcon(QMessageBox::Critical);
-		msg.setTextFormat(Qt::RichText);
-		msg.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
-		msg.setDefaultButton(QMessageBox::No);
-		msg.setText(gui::utils::make_paragraph(tr(
-			"Please understand that this build is not an official RPCS3 release.\n"
-			"This build contains changes that may break games, or even <b>damage</b> your data.\n"
-			"We recommend to download and use the official build from the %0.\n"
-			"\n"
-			"Build origin: %1\n"
-			"Do you wish to use this build anyway?")
-			.arg(gui::utils::make_link(tr("RPCS3 website"), "https://rpcs3.net/download"))
-			.arg(Qt::convertFromPlainText(branch_name.data()))));
-		msg.layout()->setSizeConstraint(QLayout::SetFixedSize);
+	// 	QMessageBox msg;
+	// 	msg.setWindowModality(Qt::WindowModal);
+	// 	msg.setWindowTitle(tr("Experimental Build Warning"));
+	// 	msg.setIcon(QMessageBox::Critical);
+	// 	msg.setTextFormat(Qt::RichText);
+	// 	msg.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
+	// 	msg.setDefaultButton(QMessageBox::No);
+	// 	msg.setText(gui::utils::make_paragraph(tr(
+	// 		"Please understand that this build is not an official RPCS3 release.\n"
+	// 		"This build contains changes that may break games, or even <b>damage</b> your data.\n"
+	// 		"We recommend to download and use the official build from the %0.\n"
+	// 		"\n"
+	// 		"Build origin: %1\n"
+	// 		"Do you wish to use this build anyway?")
+	// 		.arg(gui::utils::make_link(tr("RPCS3 website"), "https://rpcs3.net/download"))
+	// 		.arg(Qt::convertFromPlainText(branch_name.data()))));
+	// 	msg.layout()->setSizeConstraint(QLayout::SetFixedSize);
 
-		if (msg.exec() == QMessageBox::No)
-		{
-			return false;
-		}
-	}
+	// 	if (msg.exec() == QMessageBox::No)
+	// 	{
+	// 		return false;
+	// 	}
+	// }
 
 	m_emu_settings = std::make_shared<emu_settings>();
 	m_gui_settings = std::make_shared<gui_settings>();
