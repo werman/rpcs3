@@ -412,6 +412,7 @@ constexpr auto arg_installpkg     = "installpkg";
 constexpr auto arg_savestate      = "savestate";
 constexpr auto arg_last_savestate = "last-savestate";
 constexpr auto arg_rsx_capture    = "rsx-capture";
+constexpr auto arg_rsx_capture_repeat = "rsx-capture-repeat";
 constexpr auto arg_timer          = "high-res-timer";
 constexpr auto arg_verbose_curl   = "verbose-curl";
 constexpr auto arg_any_location   = "allow-any-location";
@@ -842,6 +843,8 @@ int run_rpcs3(int argc, char** argv)
 	parser.addOption(last_savestate_option);
 	const QCommandLineOption rsx_capture_option(arg_rsx_capture, "Path for directly loading an rsx capture.", "path", "");
 	parser.addOption(rsx_capture_option);
+	const QCommandLineOption rsx_capture_repeat_option(arg_rsx_capture_repeat, "Number of times to replay an rsx capture (0 = infinite).", "count", "");
+	parser.addOption(rsx_capture_repeat_option);
 	parser.addOption(QCommandLineOption(arg_q_debug, "Log qDebug to RPCS3.log."));
 	parser.addOption(QCommandLineOption(arg_error, "For internal usage."));
 	parser.addOption(QCommandLineOption(arg_updating, "For internal usage."));
@@ -863,6 +866,11 @@ int run_rpcs3(int argc, char** argv)
 	for (const auto& opt : parser.optionNames())
 	{
 		sys_log.notice("Option passed via command line: %s %s", opt, parser.value(opt));
+	}
+
+	if (parser.isSet(rsx_capture_repeat_option) && !parser.isSet(arg_rsx_capture))
+	{
+		report_fatal_error(fmt::format("The option '--{}' requires '--{}'.", arg_rsx_capture_repeat, arg_rsx_capture));
 	}
 
 	// Don't start up the full rpcs3 gui if we just want the version or help.
@@ -1233,6 +1241,30 @@ int run_rpcs3(int argc, char** argv)
 		if (!fs::is_file(rsx_capture_path))
 		{
 			report_fatal_error(fmt::format("No rsx capture file found: %s", rsx_capture_path));
+		}
+
+		u64 rsx_capture_repeat_limit = 0;
+
+		if (parser.isSet(rsx_capture_repeat_option))
+		{
+			const std::string repeat_value = parser.value(rsx_capture_repeat_option).toStdString();
+
+			u64 parsed_limit = 0;
+			const auto result = std::from_chars(repeat_value.data(), repeat_value.data() + repeat_value.size(), parsed_limit, 10);
+
+			if (result.ec != std::errc{} || result.ptr != repeat_value.data() + repeat_value.size())
+			{
+				report_fatal_error(fmt::format("Invalid value for '--{}': {}", arg_rsx_capture_repeat, repeat_value));
+			}
+
+		rsx_capture_repeat_limit = parsed_limit;
+		}
+
+		Emu.SetRsxCaptureReplayLimit(rsx_capture_repeat_limit);
+
+		if (rsx_capture_repeat_limit != 0)
+		{
+			sys_log.notice("RSX capture replay limit set to %llu iteration(s)", rsx_capture_repeat_limit);
 		}
 
 		Emu.CallFromMainThread([path = rsx_capture_path]()

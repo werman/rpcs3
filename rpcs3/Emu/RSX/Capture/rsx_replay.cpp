@@ -321,6 +321,11 @@ namespace rsx
 				render->request_emu_flip(1u);
 			}
 
+			if (!Emu.OnRsxCaptureLoopFinished())
+			{
+				break;
+			}
+
 			// random pause to not destroy gpu
 			thread_ctrl::wait_for(10'000);
 		}

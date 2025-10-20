@@ -82,6 +82,8 @@ class Emulator final
 	atomic_t<u64> m_stop_ctr{1}; // Increments when emulation is stopped
 	atomic_t<bool> m_emu_state_close_pending = false;
 	atomic_t<u64> m_restrict_emu_state_change{0};
+	atomic_t<u64> m_rsx_capture_frame_repeat_limit{0};
+	atomic_t<u64> m_rsx_capture_frame_repeat_counter{0};
 
 	games_config m_games_config;
 
@@ -202,6 +204,10 @@ public:
 	}
 
 	void Init();
+
+	void SetRsxCaptureReplayLimit(u64 limit);
+	void ResetRsxCaptureReplayCounter();
+	bool OnRsxCaptureLoopFinished();
 
 	std::vector<std::string> argv;
 	std::vector<std::string> envp;
