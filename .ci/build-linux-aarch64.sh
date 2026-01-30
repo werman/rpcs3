@@ -10,7 +10,7 @@ git config --global --add safe.directory '*'
 # shellcheck disable=SC2046
 git submodule -q update --init $(awk '/path/ && !/llvm/ && !/opencv/ && !/libsdl-org/ && !/curl/ && !/zlib/ { print $3 }' .gitmodules)
 
-mkdir build && cd build || exit 1
+mkdir -p build && cd build || exit 1
 
 if [ "$COMPILER" = "gcc" ]; then
     # These are set in the dockerfile
@@ -43,6 +43,7 @@ cmake ..                                               \
     -DSTATIC_LINK_LLVM=ON                              \
     -DBUILD_RPCS3_TESTS="${RUN_UNIT_TESTS}"            \
     -DRUN_RPCS3_TESTS="${RUN_UNIT_TESTS}"              \
+    -DUSE_LTO=OFF                                      \
     -G Ninja
 
 ninja; build_status=$?;
