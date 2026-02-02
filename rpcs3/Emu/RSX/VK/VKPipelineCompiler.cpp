@@ -12,6 +12,7 @@ namespace vk
 	std::unique_ptr<named_thread_group<pipe_compiler>> g_pipe_compilers;
 	int g_num_pipe_compilers = 0;
 	atomic_t<int> g_compiler_index{};
+	atomic_t<u32> g_pipe_compiler_pending{};
 
 	pipe_compiler::pipe_compiler()
 	{
@@ -43,6 +44,11 @@ namespace vk
 				{
 					auto compiled = int_compile_compute_pipe(job.compute_data, job.inputs, job.flags);
 					job.callback_func(compiled);
+				}
+
+				if (g_pipe_compiler_pending.fetch_sub(1) == 1)
+				{
+					g_pipe_compiler_pending.notify_all();
 				}
 			}
 
@@ -183,6 +189,7 @@ namespace vk
 			return int_compile_compute_pipe(create_info, cs_inputs, flags);
 		}
 
+		g_pipe_compiler_pending.fetch_add(1);
 		m_work_queue.push(create_info, cs_inputs, flags, callback);
 		return {};
 	}
@@ -212,6 +219,7 @@ namespace vk
 			return int_compile_graphics_pipe(create_info, modules, vs_inputs, fs_inputs, flags);
 		}
 
+		g_pipe_compiler_pending.fetch_add(1);
 		m_work_queue.push(create_info, modules, vs_inputs, fs_inputs, flags, callback);
 		return {};
 	}
@@ -265,5 +273,19 @@ namespace vk
 		int thread_index = g_compiler_index++;
 
 		return g_pipe_compilers.get()->begin() + (thread_index % g_num_pipe_compilers);
+	}
+
+	void wait_for_pipe_compiler_idle()
+	{
+		while (true)
+		{
+			const auto pending = g_pipe_compiler_pending.load();
+			if (!pending)
+			{
+				return;
+			}
+
+			g_pipe_compiler_pending.wait(pending);
+		}
 	}
 }

@@ -182,6 +182,7 @@ namespace vk
 	void initialize_pipe_compiler(int num_worker_threads = -1);
 	void destroy_pipe_compiler();
 	pipe_compiler* get_pipe_compiler();
+	void wait_for_pipe_compiler_idle();
 }
 
 namespace rpcs3
