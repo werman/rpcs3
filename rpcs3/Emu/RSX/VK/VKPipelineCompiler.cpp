@@ -14,6 +14,7 @@ namespace vk
 	int g_num_pipe_compilers = 0;
 	atomic_t<int> g_compiler_index{};
 	VkPipelineCache g_pipeline_cache = VK_NULL_HANDLE;
+	atomic_t<u32> g_pipe_compiler_pending{};
 
 	pipe_compiler::pipe_compiler()
 	{
@@ -42,6 +43,10 @@ namespace vk
 				{
 					auto compiled = int_compile_compute_pipe(job.compute_data, job.inputs, job.flags);
 					job.callback_func(compiled);
+					if (g_pipe_compiler_pending.fetch_sub(1) == 1)
+					{
+						g_pipe_compiler_pending.notify_all();
+					}
 					continue;
 				}
 
@@ -49,11 +54,17 @@ namespace vk
 				{
 					auto compiled = int_compile_graphics_pipe(job.create_info_func, job.inputs, {}, job.flags);
 					job.callback_func(compiled);
-					continue;
+				}
+				else
+				{
+					auto compiled = int_compile_graphics_pipe(job.graphics_data, job.graphics_modules, job.inputs, {}, job.flags);
+					job.callback_func(compiled);
 				}
 
-				auto compiled = int_compile_graphics_pipe(job.graphics_data, job.graphics_modules, job.inputs, {}, job.flags);
-				job.callback_func(compiled);
+				if (g_pipe_compiler_pending.fetch_sub(1) == 1)
+				{
+					g_pipe_compiler_pending.notify_all();
+				}
 			}
 
 			thread_ctrl::wait_on(m_work_queue);
@@ -214,6 +225,7 @@ namespace vk
 			return int_compile_compute_pipe(create_info, cs_inputs, flags);
 		}
 
+		g_pipe_compiler_pending.fetch_add(1);
 		m_work_queue.push(create_info, cs_inputs, flags, callback);
 		return {};
 	}
@@ -243,6 +255,7 @@ namespace vk
 			return int_compile_graphics_pipe(create_info, modules, vs_inputs, fs_inputs, flags);
 		}
 
+		g_pipe_compiler_pending.fetch_add(1);
 		m_work_queue.push(create_info, modules, vs_inputs, fs_inputs, flags, callback);
 		return {};
 	}
@@ -258,6 +271,7 @@ namespace vk
 			return int_compile_graphics_pipe(get_create_info, vs_inputs, fs_inputs, flags);
 		}
 
+		g_pipe_compiler_pending.fetch_add(1);
 		m_work_queue.push(get_create_info, vs_inputs, fs_inputs, flags, callback);
 		return {};
 	}
@@ -366,5 +380,19 @@ namespace vk
 		int thread_index = g_compiler_index++;
 
 		return g_pipe_compilers.get()->begin() + (thread_index % g_num_pipe_compilers);
+	}
+
+	void wait_for_pipe_compiler_idle()
+	{
+		while (true)
+		{
+			const auto pending = g_pipe_compiler_pending.load();
+			if (!pending)
+			{
+				return;
+			}
+
+			g_pipe_compiler_pending.wait(pending);
+		}
 	}
 }

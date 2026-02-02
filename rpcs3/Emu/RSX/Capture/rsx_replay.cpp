@@ -2,10 +2,12 @@
 #include "rsx_replay.h"
 
 #include "Emu/System.h"
+#include "Emu/system_config.h"
 #include "Emu/Cell/ErrorCodes.h"
 #include "Emu/Cell/lv2/sys_rsx.h"
 #include "Emu/Cell/lv2/sys_memory.h"
 #include "Emu/RSX/RSXThread.h"
+#include "Emu/RSX/VK/VKPipelineCompiler.h"
 
 #include "util/asm.hpp"
 
@@ -256,6 +258,16 @@ namespace rsx
 		be_t<u32> context_id = allocate_context();
 
 		auto fifo_stops = alloc_write_fifo(context_id);
+		const bool use_vulkan = (g_cfg.video.renderer == video_renderer::vulkan);
+		const bool original_disable_video_output = g_cfg.video.disable_video_output.get();
+		bool suppress_output = false;
+		bool first_frame = true;
+
+		if (use_vulkan && !original_disable_video_output)
+		{
+			g_cfg.video.disable_video_output.set(true);
+			suppress_output = true;
+		}
 
 		while (thread_ctrl::state() != thread_state::aborting)
 		{
@@ -321,6 +333,22 @@ namespace rsx
 				render->request_emu_flip(1u);
 			}
 
+			if (first_frame)
+			{
+				if (use_vulkan)
+				{
+					vk::wait_for_pipe_compiler_idle();
+				}
+
+				if (suppress_output)
+				{
+					g_cfg.video.disable_video_output.set(original_disable_video_output);
+					suppress_output = false;
+				}
+
+				first_frame = false;
+			}
+
 			if (!Emu.OnRsxCaptureLoopFinished())
 			{
 				break;
@@ -328,6 +356,11 @@ namespace rsx
 
 			// random pause to not destroy gpu
 			thread_ctrl::wait_for(10'000);
+		}
+
+		if (suppress_output)
+		{
+			g_cfg.video.disable_video_output.set(original_disable_video_output);
 		}
 
 		get_current_cpu_thread()->state += (cpu_flag::exit + cpu_flag::wait);
