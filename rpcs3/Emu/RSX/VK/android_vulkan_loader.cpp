@@ -3,6 +3,7 @@
 
 #ifdef ANDROID
 
+#include <cstdlib>
 #include <dlfcn.h>
 
 #define VK_ANDROID_FUNC(func) PFN_##func func = nullptr;
@@ -42,7 +43,11 @@ namespace vk
 
 	bool init_android_vulkan_loader(std::string* error)
 	{
-		const char* library = "libvulkan.so";
+		const char* library = std::getenv("RPCS3_VULKAN_LIBRARY");
+		if (!library || !*library)
+		{
+			library = "libvulkan.so";
+		}
 
 		s_vulkan_library = dlopen(library, RTLD_NOW | RTLD_LOCAL);
 		if (!s_vulkan_library)

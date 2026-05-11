@@ -11,9 +11,12 @@
 #include "rsx_replay_headless_frame.h"
 
 #include <charconv>
+#include <chrono>
 #include <clocale>
 #include <cstdio>
 #include <cstdlib>
+#include <deque>
+#include <mutex>
 #include <thread>
 
 LOG_CHANNEL(sys_log, "SYS");
@@ -28,7 +31,7 @@ void qt_events_aware_op(int repeat_duration_ms, std::function<bool()> wrapped_op
 {
 	while (!wrapped_op())
 	{
-		thread_ctrl::wait_for(repeat_duration_ms <= 0 ? 1000 : repeat_duration_ms * 1000);
+		std::this_thread::sleep_for(std::chrono::microseconds{repeat_duration_ms <= 0 ? 1000 : repeat_duration_ms * 1000});
 	}
 }
 
@@ -40,6 +43,156 @@ namespace
 		std::string config_path;
 		std::string output_prefix;
 		u64 loops = 1;
+	};
+
+	struct queued_main_call
+	{
+		std::function<void()> func;
+		atomic_t<u32>* wake_up = nullptr;
+	};
+
+	enum class replay_phase : u32
+	{
+		startup,
+		parsed,
+		vulkan_loader,
+		callbacks,
+		emu_init,
+		config,
+		booting,
+		running,
+		killing,
+		done,
+	};
+
+	const char* phase_name(replay_phase phase)
+	{
+		switch (phase)
+		{
+		case replay_phase::startup: return "startup";
+		case replay_phase::parsed: return "parsed";
+		case replay_phase::vulkan_loader: return "vulkan_loader";
+		case replay_phase::callbacks: return "callbacks";
+		case replay_phase::emu_init: return "emu_init";
+		case replay_phase::config: return "config";
+		case replay_phase::booting: return "booting";
+		case replay_phase::running: return "running";
+		case replay_phase::killing: return "killing";
+		case replay_phase::done: return "done";
+		}
+
+		return "unknown";
+	}
+
+	class main_thread_dispatcher
+	{
+		std::thread::id m_main_thread_id = std::this_thread::get_id();
+		std::mutex m_mutex;
+		std::deque<queued_main_call> m_queue;
+		std::atomic<bool> m_drain_active{false};
+
+		static void run(queued_main_call call)
+		{
+			if (call.func)
+			{
+				call.func();
+			}
+
+			if (call.wake_up)
+			{
+				*call.wake_up = true;
+				call.wake_up->notify_one();
+			}
+		}
+
+	public:
+		void dispatch(std::function<void()> func, atomic_t<u32>* wake_up)
+		{
+			queued_main_call call{std::move(func), wake_up};
+
+			if (std::this_thread::get_id() == m_main_thread_id)
+			{
+				run(std::move(call));
+				return;
+			}
+
+			if (wake_up && !m_drain_active.load())
+			{
+				std::fprintf(stderr, "status: running blocking main-thread callback inline while dispatcher is not draining\n");
+				run(std::move(call));
+				return;
+			}
+
+			std::lock_guard lock(m_mutex);
+			m_queue.emplace_back(std::move(call));
+		}
+
+		void drain()
+		{
+			m_drain_active = true;
+
+			std::deque<queued_main_call> queue;
+			{
+				std::lock_guard lock(m_mutex);
+				queue.swap(m_queue);
+			}
+
+			for (auto& call : queue)
+			{
+				run(std::move(call));
+			}
+
+			m_drain_active = false;
+		}
+	};
+
+	class scoped_watchdog
+	{
+		std::atomic<bool> m_running{true};
+		std::thread m_thread;
+
+	public:
+		scoped_watchdog(const std::shared_ptr<rsx_replay_frame_sink>& sink, const std::shared_ptr<std::atomic<replay_phase>>& phase)
+		{
+			m_thread = std::thread([this, sink, phase]()
+			{
+				u32 ticks = 0;
+				while (m_running.load())
+				{
+					std::this_thread::sleep_for(std::chrono::milliseconds{100});
+
+					if (!m_running.load())
+					{
+						break;
+					}
+
+					if (++ticks < 50)
+					{
+						continue;
+					}
+
+					ticks = 0;
+					std::fprintf(stderr,
+						"status: phase=%s frames_written=%llu next_frame=%u expected_frames=%llu emu_stopped=%d failed=%d\n",
+						phase_name(phase->load()),
+						static_cast<unsigned long long>(sink->frames_written.load()),
+						sink->frame_index.load(),
+						static_cast<unsigned long long>(sink->expected_frames.load()),
+						Emu.IsStopped() ? 1 : 0,
+						sink->failed.load() ? 1 : 0);
+				}
+			});
+		}
+
+		~scoped_watchdog()
+		{
+			m_running = false;
+
+			if (m_thread.joinable())
+			{
+				m_thread.join();
+			}
+		}
 	};
 
 	void print_usage(const char* argv0)
@@ -106,19 +259,13 @@ namespace
 		return true;
 	}
 
-	void configure_callbacks(const std::shared_ptr<rsx_replay_frame_sink>& sink)
+	void configure_callbacks(const std::shared_ptr<rsx_replay_frame_sink>& sink, const std::shared_ptr<main_thread_dispatcher>& dispatcher)
 	{
 		EmuCallbacks callbacks{};
 
-		callbacks.call_from_main_thread = [](std::function<void()> func, atomic_t<u32>* wake_up)
+		callbacks.call_from_main_thread = [dispatcher](std::function<void()> func, atomic_t<u32>* wake_up)
 		{
-			func();
-
-			if (wake_up)
-			{
-				*wake_up = true;
-				wake_up->notify_one();
-			}
+			dispatcher->dispatch(std::move(func), wake_up);
 		};
 
 		callbacks.try_to_quit = [](bool, std::function<void()> on_exit) -> bool
@@ -201,7 +348,9 @@ namespace
 
 int main(int argc, char** argv)
 {
+	std::setvbuf(stderr, nullptr, _IONBF, 0);
 	std::setlocale(LC_ALL, "C");
+	std::fprintf(stderr, "status: phase=startup\n");
 
 	replay_cli cli;
 	if (!parse_cli(argc, argv, cli))
@@ -210,6 +359,20 @@ int main(int argc, char** argv)
 		return 2;
 	}
 
+	auto sink = std::make_shared<rsx_replay_frame_sink>();
+	sink->output_prefix = cli.output_prefix;
+	sink->expected_frames = cli.loops;
+
+	auto phase = std::make_shared<std::atomic<replay_phase>>(replay_phase::parsed);
+	scoped_watchdog watchdog(sink, phase);
+
+	const auto set_phase = [&phase](replay_phase next)
+	{
+		phase->store(next);
+		std::fprintf(stderr, "status: phase=%s\n", phase_name(next));
+	};
+
+	set_phase(replay_phase::vulkan_loader);
 	std::string vulkan_error;
 	if (!vk::init_android_vulkan_loader(&vulkan_error))
 	{
@@ -217,16 +380,17 @@ int main(int argc, char** argv)
 		return 1;
 	}
 
-	auto sink = std::make_shared<rsx_replay_frame_sink>();
-	sink->output_prefix = cli.output_prefix;
+	set_phase(replay_phase::callbacks);
+	auto dispatcher = std::make_shared<main_thread_dispatcher>();
+	configure_callbacks(sink, dispatcher);
 
-	configure_callbacks(sink);
-
+	set_phase(replay_phase::emu_init);
 	Emu.SetHasGui(false);
 	Emu.SetUsr("00000001");
 	Emu.Init();
 	if (!cli.config_path.empty())
 	{
+		set_phase(replay_phase::config);
 		if (const fs::file cfg_file{cli.config_path})
 		{
 			if (!g_cfg.from_string(cfg_file.to_string()))
@@ -247,23 +411,61 @@ int main(int argc, char** argv)
 	g_cfg.video.renderer.set(video_renderer::vulkan);
 	g_cfg.video.stretch_to_display_area.set(true);
 	g_cfg.video.disable_video_output.set(false);
+	g_cfg.misc.use_native_interface.set(false);
 
-	Emu.SetRsxCaptureReplayLimit(cli.loops);
+	Emu.SetRsxCaptureReplayLimit(0);
 
+	set_phase(replay_phase::booting);
 	if (!Emu.BootRsxCapture(cli.capture_path))
 	{
 		std::fprintf(stderr, "error: failed to boot RSX capture '%s'\n", cli.capture_path.c_str());
 		return 1;
 	}
 
-	while (!Emu.IsStopped() && !sink->failed.load())
+	set_phase(replay_phase::running);
+	bool shutdown_requested = false;
+
+	while (true)
 	{
-		thread_ctrl::wait_for(10'000);
+		dispatcher->drain();
+
+		if (sink->failed.load())
+		{
+			break;
+		}
+
+		if (!shutdown_requested && sink->is_complete())
+		{
+			set_phase(replay_phase::killing);
+			Emu.Kill(false);
+			shutdown_requested = true;
+		}
+
+		dispatcher->drain();
+
+		if (sink->failed.load() || Emu.IsStopped())
+		{
+			break;
+		}
+
+		std::this_thread::sleep_for(std::chrono::microseconds{10'000});
 	}
+
+	dispatcher->drain();
+	set_phase(replay_phase::done);
 
 	if (sink->failed.load())
 	{
 		std::fprintf(stderr, "error: %s\n", sink->get_error().c_str());
+		return 1;
+	}
+
+	if (sink->expected_frames.load() && !sink->is_complete())
+	{
+		std::fprintf(stderr,
+			"error: replay stopped after writing %llu/%llu frame(s)\n",
+			static_cast<unsigned long long>(sink->frames_written.load()),
+			static_cast<unsigned long long>(sink->expected_frames.load()));
 		return 1;
 	}
 

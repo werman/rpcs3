@@ -32,6 +32,32 @@ std::string rsx_replay_frame_sink::get_error() const
 	return error;
 }
 
+bool rsx_replay_frame_sink::try_reserve_frame(u32& index)
+{
+	while (true)
+	{
+		const u64 expected = expected_frames.load();
+		u32 current = frame_index.load();
+
+		if (expected && current >= expected)
+		{
+			return false;
+		}
+
+		if (frame_index.compare_exchange_weak(current, current + 1))
+		{
+			index = current;
+			return true;
+		}
+	}
+}
+
+bool rsx_replay_frame_sink::is_complete() const
+{
+	const u64 expected = expected_frames.load();
+	return expected && frames_written.load() >= expected;
+}
+
 rsx_replay_headless_frame::rsx_replay_headless_frame(std::shared_ptr<rsx_replay_frame_sink> sink)
 	: m_sink(std::move(sink))
 {
@@ -120,7 +146,12 @@ void rsx_replay_headless_frame::present_frame(std::vector<u8>&&, u32, u32, u32, 
 
 void rsx_replay_headless_frame::take_screenshot(std::vector<u8>&& sshot_data, u32 sshot_width, u32 sshot_height, bool is_bgra)
 {
-	const u32 frame_index = m_sink->frame_index.fetch_add(1);
+	u32 frame_index = 0;
+	if (!m_sink->try_reserve_frame(frame_index))
+	{
+		return;
+	}
+
 	const std::string path = fmt::format("%s%04u.png", m_sink->output_prefix, frame_index);
 
 	FILE* file = std::fopen(path.c_str(), "wb");
@@ -195,4 +226,6 @@ void rsx_replay_headless_frame::take_screenshot(std::vector<u8>&& sshot_data, u3
 	png_write_end(png, nullptr);
 	png_destroy_write_struct(&png, &info);
 	std::fclose(file);
+
+	m_sink->frames_written++;
 }

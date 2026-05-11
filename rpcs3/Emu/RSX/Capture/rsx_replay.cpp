@@ -12,6 +12,7 @@
 #include "util/asm.hpp"
 
 #include <algorithm>
+#include <cstdio>
 #include <thread>
 
 extern atomic_t<bool> g_user_asked_for_screenshot;
@@ -282,6 +283,9 @@ namespace rsx
 		const bool original_disable_video_output = g_cfg.video.disable_video_output.get();
 		bool suppress_output = false;
 		bool first_frame = true;
+#ifdef ANDROID
+		u64 replay_loop = 0;
+#endif
 
 		if (use_vulkan && !original_disable_video_output)
 		{
@@ -291,6 +295,11 @@ namespace rsx
 
 		while (thread_ctrl::state() != thread_state::aborting)
 		{
+#ifdef ANDROID
+			const u64 current_loop = replay_loop++;
+			std::fprintf(stderr, "status: replay_loop=%llu begin\n", static_cast<unsigned long long>(current_loop));
+#endif
+
 			// Load registers while the RSX is still idle
 			method_registers = frame->reg_state;
 			atomic_fence_seq_cst();
@@ -317,12 +326,27 @@ namespace rsx
 					continue;
 
 				// wait until rsx idle and at our first 'stop' to apply state
+#ifdef ANDROID
+				u64 state_wait_start = get_system_time();
+				u64 state_wait_next_log = 5'000'000;
+#endif
 				while (thread_ctrl::state() != thread_state::aborting && !render->is_fifo_idle() && (render->ctrl->get != fifo_stops[stopIdx]))
 				{
 					if (Emu.IsPaused())
 						thread_ctrl::wait_for(10'000);
 					else
 						std::this_thread::yield();
+
+#ifdef ANDROID
+					const u64 waited_us = get_system_time() - state_wait_start;
+					if (waited_us >= state_wait_next_log)
+					{
+						std::fprintf(stderr, "status: replay_loop=%llu waiting_for_state stop=%u get=0x%x expected=0x%x wait_us=%llu\n",
+							static_cast<unsigned long long>(current_loop), static_cast<unsigned>(stopIdx), +render->ctrl->get,
+							fifo_stops[stopIdx], static_cast<unsigned long long>(waited_us));
+						state_wait_next_log += 5'000'000;
+					}
+#endif
 				}
 
 				stopIdx++;
@@ -340,12 +364,27 @@ namespace rsx
 			u32 end = fifo_stops.back();
 			render->ctrl->put = end;
 
+#ifdef ANDROID
+			u64 idle_wait_start = get_system_time();
+			u64 idle_wait_next_log = 5'000'000;
+#endif
 			while (!render->is_fifo_idle() && thread_ctrl::state() != thread_state::aborting)
 			{
 				if (Emu.IsPaused())
 					thread_ctrl::wait_for(10'000);
 				else
 					std::this_thread::yield();
+
+#ifdef ANDROID
+				const u64 waited_us = get_system_time() - idle_wait_start;
+				if (waited_us >= idle_wait_next_log)
+				{
+					std::fprintf(stderr, "status: replay_loop=%llu waiting_for_idle get=0x%x put=0x%x wait_us=%llu\n",
+						static_cast<unsigned long long>(current_loop), +render->ctrl->get, +render->ctrl->put,
+						static_cast<unsigned long long>(waited_us));
+					idle_wait_next_log += 5'000'000;
+				}
+#endif
 			}
 
 #ifdef ANDROID
@@ -366,7 +405,26 @@ namespace rsx
 			}
 
 			g_user_asked_for_screenshot = true;
+			std::fprintf(stderr, "status: replay_loop=%llu screenshot_requested buffer=%u\n",
+				static_cast<unsigned long long>(current_loop), render->current_display_buffer);
 			render->request_emu_flip(render->current_display_buffer);
+
+			u64 screenshot_wait_us = 0;
+			while (g_user_asked_for_screenshot && thread_ctrl::state() != thread_state::aborting)
+			{
+				const u64 wait_us = Emu.IsPaused() ? 10'000 : 1'000;
+				thread_ctrl::wait_for(wait_us);
+				screenshot_wait_us += wait_us;
+
+				if (screenshot_wait_us && screenshot_wait_us % 5'000'000 == 0)
+				{
+					std::fprintf(stderr, "status: replay_loop=%llu waiting_for_screenshot wait_us=%llu\n",
+						static_cast<unsigned long long>(current_loop), static_cast<unsigned long long>(screenshot_wait_us));
+				}
+			}
+
+			std::fprintf(stderr, "status: replay_loop=%llu screenshot_consumed wait_us=%llu\n",
+				static_cast<unsigned long long>(current_loop), static_cast<unsigned long long>(screenshot_wait_us));
 #else
 			// Check if the captured application used syscall instead of a gcm command to flip
 			if (render->int_flip_index == last_flip)

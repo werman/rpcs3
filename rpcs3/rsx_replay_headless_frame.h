@@ -13,6 +13,8 @@ struct rsx_replay_frame_sink
 	std::atomic<u32> width{1280};
 	std::atomic<u32> height{720};
 	std::atomic<u32> frame_index{0};
+	std::atomic<u64> expected_frames{0};
+	std::atomic<u64> frames_written{0};
 	std::atomic<bool> failed{false};
 	mutable std::mutex error_mutex;
 	std::string error;
@@ -20,6 +22,8 @@ struct rsx_replay_frame_sink
 	void set_size(u32 new_width, u32 new_height);
 	void set_error(std::string message);
 	std::string get_error() const;
+	bool try_reserve_frame(u32& index);
+	bool is_complete() const;
 };
 
 class rsx_replay_headless_frame final : public GSFrameBase
