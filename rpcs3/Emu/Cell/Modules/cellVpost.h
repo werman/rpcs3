@@ -1,5 +1,6 @@
 #pragma once
 
+#ifndef WITHOUT_FFMPEG
 #ifdef _MSC_VER
 #pragma warning(push, 0)
 #else
@@ -16,6 +17,7 @@ extern "C"
 #pragma warning(pop)
 #else
 #pragma GCC diagnostic pop
+#endif
 #endif
 
 // Error Codes
@@ -344,7 +346,9 @@ public:
 
 	const bool to_rgba;
 
+#ifndef WITHOUT_FFMPEG
 	SwsContext* sws{};
+#endif
 
 	VpostInstance(bool rgba)
 		: to_rgba(rgba)
@@ -353,6 +357,8 @@ public:
 
 	~VpostInstance()
 	{
+#ifndef WITHOUT_FFMPEG
 		sws_freeContext(sws);
+#endif
 	}
 };

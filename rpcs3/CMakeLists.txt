@@ -40,6 +40,27 @@ endif()
 
 gen_git_version(${CMAKE_CURRENT_SOURCE_DIR})
 
+if (ANDROID)
+	add_executable(rsx-replay
+		rpcs3_version.cpp
+		rsx_replay_main.cpp
+		rsx_replay_headless_frame.cpp
+		rsx_replay_input_stub.cpp
+		Input/ps_move_config.cpp
+	)
+
+    target_link_libraries(rsx-replay
+        PRIVATE
+            rpcs3_emu
+            3rdparty::libpng
+            ${CMAKE_DL_LIBS}
+    )
+
+    if(USE_PRECOMPILED_HEADERS)
+        target_precompile_headers(rsx-replay PRIVATE stdafx.h)
+    endif()
+endif()
+
 if (NOT ANDROID)
     # Build rpcs3_lib
     add_library(rpcs3_lib STATIC)

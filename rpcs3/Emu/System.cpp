@@ -996,6 +996,41 @@ bool Emulator::BootRsxCapture(const std::string& path)
 		return false;
 	}
 
+	if (GetCallbacks().set_rsx_capture_display_size)
+	{
+		bool found_display_size = false;
+
+		for (const auto& replay_cmd : frame->replay_commands)
+		{
+			if (replay_cmd.display_buffer_state == 0)
+			{
+				continue;
+			}
+
+			const auto it = std::find_if(frame->display_buffers_map.begin(), frame->display_buffers_map.end(), FN(x.second == replay_cmd.display_buffer_state));
+			if (it == frame->display_buffers_map.end())
+			{
+				continue;
+			}
+
+			const auto& dbstate = it->first;
+			for (u32 i = 0; i < dbstate.count; i++)
+			{
+				if (dbstate.buffers[i].width && dbstate.buffers[i].height)
+				{
+					GetCallbacks().set_rsx_capture_display_size(dbstate.buffers[i].width, dbstate.buffers[i].height);
+					found_display_size = true;
+					break;
+				}
+			}
+
+			if (found_display_size)
+			{
+				break;
+			}
+		}
+	}
+
 	m_path.clear();
 	m_path_old.clear();
 	m_path_original.clear();

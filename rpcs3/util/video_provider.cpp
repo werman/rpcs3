@@ -4,10 +4,7 @@
 #include "Emu/Cell/timers.hpp"
 #include "Emu/system_config.h"
 
-extern "C"
-{
-#include <libavutil/pixfmt.h>
-}
+#include "util/av_pixel_format.h"
 
 LOG_CHANNEL(media_log, "Media");
 

@@ -527,7 +527,11 @@ namespace vk
 		}
 
 		// Set up instance information
-		std::vector<const char*> requested_extensions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+		std::vector<const char*> requested_extensions;
+		if (present_queue_idx != umax)
+		{
+			requested_extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+		}
 
 		// Enable hardware features manually
 		// Currently we require:
@@ -846,6 +850,10 @@ namespace vk
 			dump_debug_info(requested_extensions, enabled_features);
 			vk::die_with_error(error);
 		}
+
+#ifdef ANDROID
+		vk::load_android_vulkan_device_procs(dev);
+#endif
 
 		// Dump some diagnostics to the log
 		rsx_log.notice("%u extensions loaded:", ::size32(requested_extensions));

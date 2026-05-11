@@ -65,7 +65,6 @@ target_sources(rpcs3_emu PRIVATE
     ../util/atomic.cpp
     ../util/console.cpp
     ../util/emu_utils.cpp
-    ../util/media_utils.cpp
     ../util/video_provider.cpp
     ../util/logs.cpp
     ../util/yaml.cpp
@@ -93,6 +92,11 @@ target_sources(rpcs3_emu PRIVATE
     ../../Utilities/Thread.cpp
     ../../Utilities/version.cpp
 )
+if(ANDROID)
+    target_sources(rpcs3_emu PRIVATE ../util/media_utils_stub.cpp)
+else()
+    target_sources(rpcs3_emu PRIVATE ../util/media_utils.cpp)
+endif()
 if(APPLE)
     target_sources(rpcs3_emu PRIVATE
         ../../darwin/util/sysinfo_darwin.mm
@@ -392,6 +396,15 @@ target_sources(rpcs3_emu PRIVATE
     Cell/Modules/libfs_utility_init.cpp
 )
 
+if(ANDROID)
+    set_source_files_properties(Cell/Modules/cellVdec.cpp PROPERTIES HEADER_FILE_ONLY TRUE)
+    set_source_files_properties(Cell/Modules/cellAtracXdec.cpp PROPERTIES HEADER_FILE_ONLY TRUE)
+    set_source_files_properties(Cell/Modules/cellVpost.cpp PROPERTIES HEADER_FILE_ONLY TRUE)
+    target_sources(rpcs3_emu PRIVATE Cell/Modules/Android/cellVdec_stub.cpp)
+    target_sources(rpcs3_emu PRIVATE Cell/Modules/Android/cellAtracXdec_stub.cpp)
+    target_sources(rpcs3_emu PRIVATE Cell/Modules/Android/cellVpost_stub.cpp)
+endif()
+
 if(NOT MSVC)
     set_source_files_properties(Cell/PPUTranslator.cpp PROPERTIES
         COMPILE_FLAGS -fno-rtti
@@ -674,6 +687,11 @@ if(TARGET 3rdparty_vulkan)
     if(APPLE)
         target_sources(rpcs3_emu PRIVATE
             RSX/VK/vkutils/metal_layer.mm
+        )
+    endif()
+    if(ANDROID)
+        target_sources(rpcs3_emu PRIVATE
+            RSX/VK/android_vulkan_loader.cpp
         )
     endif()
 endif()

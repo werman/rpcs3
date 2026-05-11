@@ -4,6 +4,7 @@
 #include "Emu/Cell/Modules/cellVideoOut.h"
 #include "Emu/system_config.h"
 
+#ifndef WITHOUT_FFMPEG
 #ifdef _MSC_VER
 #pragma warning(push, 0)
 #else
@@ -22,6 +23,7 @@ extern "C"
 #else
 #pragma GCC diagnostic pop
 #endif
+#endif
 
 #include "util/sysinfo.hpp"
 
@@ -29,13 +31,135 @@ namespace rsx
 {
 	atomic_t<u64> g_rsx_shared_tag{ 0 };
 
+#ifdef WITHOUT_FFMPEG
+	namespace
+	{
+		struct rgba8
+		{
+			u8 r;
+			u8 g;
+			u8 b;
+			u8 a;
+		};
+
+		rgba8 read_pixel(const u8* src, AVPixelFormat format)
+		{
+			switch (format)
+			{
+			case AV_PIX_FMT_RGB565BE:
+			{
+				const u16 value = (static_cast<u16>(src[0]) << 8) | src[1];
+				return
+				{
+					static_cast<u8>(((value >> 11) & 0x1f) * 255 / 31),
+					static_cast<u8>(((value >> 5) & 0x3f) * 255 / 63),
+					static_cast<u8>((value & 0x1f) * 255 / 31),
+					255
+				};
+			}
+			case AV_PIX_FMT_ARGB:
+			default:
+				return {src[1], src[2], src[3], src[0]};
+			}
+		}
+
+		void write_pixel(u8* dst, AVPixelFormat format, rgba8 color)
+		{
+			switch (format)
+			{
+			case AV_PIX_FMT_RGB565BE:
+			{
+				const u16 value =
+					((static_cast<u16>(color.r) * 31 / 255) << 11) |
+					((static_cast<u16>(color.g) * 63 / 255) << 5) |
+					(static_cast<u16>(color.b) * 31 / 255);
+
+				dst[0] = static_cast<u8>(value >> 8);
+				dst[1] = static_cast<u8>(value);
+				return;
+			}
+			case AV_PIX_FMT_ARGB:
+			default:
+				dst[0] = color.a;
+				dst[1] = color.r;
+				dst[2] = color.g;
+				dst[3] = color.b;
+				return;
+			}
+		}
+
+		u32 pixel_size(AVPixelFormat format)
+		{
+			return format == AV_PIX_FMT_RGB565BE ? 2 : 4;
+		}
+
+		u8 lerp_channel(u8 a, u8 b, u32 f)
+		{
+			return static_cast<u8>((static_cast<u32>(a) * (256 - f) + static_cast<u32>(b) * f) >> 8);
+		}
+
+		rgba8 lerp(rgba8 a, rgba8 b, u32 f)
+		{
+			return
+			{
+				lerp_channel(a.r, b.r, f),
+				lerp_channel(a.g, b.g, f),
+				lerp_channel(a.b, b.b, f),
+				lerp_channel(a.a, b.a, f)
+			};
+		}
+	}
+#endif
+
 	void convert_scale_image(u8 *dst, AVPixelFormat dst_format, int dst_width, int dst_height, int dst_pitch,
 		const u8 *src, AVPixelFormat src_format, int src_width, int src_height, int src_pitch, int src_slice_h, bool bilinear)
 	{
+#ifndef WITHOUT_FFMPEG
 		std::unique_ptr<SwsContext, void(*)(SwsContext*)> sws(sws_getContext(src_width, src_height, src_format,
 			dst_width, dst_height, dst_format, bilinear ? SWS_FAST_BILINEAR : SWS_POINT, nullptr, nullptr, nullptr), sws_freeContext);
 
 		sws_scale(sws.get(), &src, &src_pitch, 0, src_slice_h, &dst, &dst_pitch);
+#else
+		if (dst_width <= 0 || dst_height <= 0 || src_width <= 0 || src_height <= 0)
+		{
+			return;
+		}
+
+		const u32 src_bpp = pixel_size(src_format);
+		const u32 dst_bpp = pixel_size(dst_format);
+		const u32 active_src_height = std::clamp(src_slice_h, 1, src_height);
+
+		for (int y = 0; y < dst_height; ++y)
+		{
+			u8* dst_row = dst + y * dst_pitch;
+
+			const u32 src_y_fp = static_cast<u32>((static_cast<u64>(y) * active_src_height << 8) / dst_height);
+			const u32 y0 = std::min<u32>(src_y_fp >> 8, active_src_height - 1);
+			const u32 y1 = std::min<u32>(y0 + 1, active_src_height - 1);
+			const u32 yf = bilinear ? (src_y_fp & 0xff) : 0;
+
+			for (int x = 0; x < dst_width; ++x)
+			{
+				const u32 src_x_fp = static_cast<u32>((static_cast<u64>(x) * src_width << 8) / dst_width);
+				const u32 x0 = std::min<u32>(src_x_fp >> 8, src_width - 1);
+				const u32 x1 = std::min<u32>(x0 + 1, src_width - 1);
+				const u32 xf = bilinear ? (src_x_fp & 0xff) : 0;
+
+				const rgba8 c00 = read_pixel(src + y0 * src_pitch + x0 * src_bpp, src_format);
+				rgba8 color = c00;
+
+				if (bilinear)
+				{
+					const rgba8 c10 = read_pixel(src + y0 * src_pitch + x1 * src_bpp, src_format);
+					const rgba8 c01 = read_pixel(src + y1 * src_pitch + x0 * src_bpp, src_format);
+					const rgba8 c11 = read_pixel(src + y1 * src_pitch + x1 * src_bpp, src_format);
+					color = lerp(lerp(c00, c10, xf), lerp(c01, c11, xf), yf);
+				}
+
+				write_pixel(dst_row + x * dst_bpp, dst_format, color);
+			}
+		}
+#endif
 	}
 
 	void clip_image(u8 *dst, const u8 *src, int clip_x, int clip_y, int clip_w, int clip_h, int bpp, int src_pitch, int dst_pitch)

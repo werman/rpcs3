@@ -4,6 +4,8 @@
 #include "Utilities/geometry.h"
 #include "../gcm_enums.h"
 
+#include "util/av_pixel_format.h"
+
 #define RSX_SURFACE_DIMENSION_IGNORED 1
 
 namespace rsx

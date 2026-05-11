@@ -74,6 +74,38 @@ namespace vk
 		return VK_NOT_READY;
 	}
 
+	bool native_swapchain_base::init()
+	{
+		swapchain_images.clear();
+		init_swapchain_images(dev, 3);
+		return true;
+	}
+
+	void native_swapchain_base::create(display_handle_t& handle)
+	{
+		window_handle = handle;
+	}
+
+	void native_swapchain_base::destroy(bool full)
+	{
+		swapchain_images.clear();
+
+		if (full)
+		{
+			dev.destroy();
+		}
+	}
+
+	VkResult native_swapchain_base::present(VkSemaphore /*semaphore*/, u32 index)
+	{
+		if (index < swapchain_images.size())
+		{
+			swapchain_images[index].first = false;
+		}
+
+		return VK_SUCCESS;
+	}
+
 	void native_swapchain_base::init_swapchain_images(render_device& dev, u32 preferred_count)
 	{
 		swapchain_images.resize(preferred_count);

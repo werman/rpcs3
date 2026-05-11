@@ -151,7 +151,7 @@ add_subdirectory(SoundTouch EXCLUDE_FROM_ALL)
 
 # libevdev
 set(LIBEVDEV_TARGET 3rdparty_dummy_lib)
-if(USE_LIBEVDEV)
+if(USE_LIBEVDEV AND NOT ANDROID)
 	pkg_check_modules(LIBEVDEV libevdev libudev)
 	if(LIBEVDEV_FOUND)
 		add_library(3rdparty_libevdev INTERFACE)
@@ -199,7 +199,11 @@ if(USE_VULKAN)
 	if(VULKAN_FOUND)
 		add_library(3rdparty_vulkan INTERFACE)
 		target_compile_definitions(3rdparty_vulkan INTERFACE -DHAVE_VULKAN)
-		target_link_libraries(3rdparty_vulkan INTERFACE Vulkan::Vulkan)
+		if(ANDROID)
+			target_include_directories(3rdparty_vulkan SYSTEM INTERFACE ${Vulkan_INCLUDE_DIRS})
+		else()
+			target_link_libraries(3rdparty_vulkan INTERFACE Vulkan::Vulkan)
+		endif()
 
 		if(UNIX AND NOT APPLE AND NOT ANDROID)
 			find_package(Wayland)
@@ -291,8 +295,11 @@ set_property(TARGET ${FAUDIO_TARGET} PROPERTY FOLDER "3rdparty/")
 
 
 # FFMPEG
-if(NOT ANDROID)
-	add_library(3rdparty_ffmpeg INTERFACE)
+add_library(3rdparty_ffmpeg INTERFACE)
+
+if(ANDROID)
+	target_compile_definitions(3rdparty_ffmpeg INTERFACE WITHOUT_FFMPEG=1)
+else()
 
 	# Select the version of ffmpeg to use, default is builtin
 	if(USE_SYSTEM_FFMPEG)

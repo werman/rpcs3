@@ -14,6 +14,8 @@
 #include <algorithm>
 #include <thread>
 
+extern atomic_t<bool> g_user_asked_for_screenshot;
+
 namespace rsx
 {
 	std::unique_ptr<frame_capture_data> convert_frame_capture_v5_to_v6(frame_capture_data_v5&& frame, std::string& error)
@@ -208,6 +210,9 @@ namespace rsx
 				fmt::throw_exception("requested display buffer for command not found");
 
 			const auto& dbstate = it->first;
+			u32 display_width = 0;
+			u32 display_height = 0;
+
 			for (u32 i = 0; i < dbstate.count; ++i)
 			{
 				const auto& buf = dbstate.buffers[i];
@@ -217,6 +222,21 @@ namespace rsx
 				cs.buffer_state.buffers[i] = buf;
 				sys_rsx_context_attribute(context_id, 0x104, i,
 					u64{dbstate.buffers[i].width} << 32 | dbstate.buffers[i].height, u64{dbstate.buffers[i].pitch} << 32 | dbstate.buffers[i].offset, 0);
+			}
+
+			for (u32 i = 0; i < dbstate.count; ++i)
+			{
+				if (dbstate.buffers[i].width && dbstate.buffers[i].height)
+				{
+					display_width = dbstate.buffers[i].width;
+					display_height = dbstate.buffers[i].height;
+					break;
+				}
+			}
+
+			if (display_width && display_height && Emu.GetCallbacks().set_rsx_capture_display_size)
+			{
+				Emu.GetCallbacks().set_rsx_capture_display_size(display_width, display_height);
 			}
 
 			cs.display_buffer_hash = replay_cmd.display_buffer_state;
@@ -279,7 +299,9 @@ namespace rsx
 			sys_rsx_context_attribute(context_id, 0x001, 0x10000000, fifo_stops[0], 0, 0);
 
 			auto render = get_current_renderer();
+#ifndef ANDROID
 			auto last_flip = render->int_flip_index;
+#endif
 
 			usz stopIdx = 0;
 			for (const auto& replay_cmd : frame->replay_commands)
@@ -326,6 +348,26 @@ namespace rsx
 					std::this_thread::yield();
 			}
 
+#ifdef ANDROID
+			if (first_frame)
+			{
+				if (use_vulkan)
+				{
+					vk::wait_for_pipe_compiler_idle();
+				}
+
+				if (suppress_output)
+				{
+					g_cfg.video.disable_video_output.set(original_disable_video_output);
+					suppress_output = false;
+				}
+
+				first_frame = false;
+			}
+
+			g_user_asked_for_screenshot = true;
+			render->request_emu_flip(render->current_display_buffer);
+#else
 			// Check if the captured application used syscall instead of a gcm command to flip
 			if (render->int_flip_index == last_flip)
 			{
@@ -348,6 +390,7 @@ namespace rsx
 
 				first_frame = false;
 			}
+#endif
 
 			if (!Emu.OnRsxCaptureLoopFinished())
 			{

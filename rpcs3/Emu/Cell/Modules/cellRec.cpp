@@ -11,10 +11,7 @@
 #include "util/media_utils.h"
 #include "util/video_provider.h"
 
-extern "C"
-{
-#include <libavutil/pixfmt.h>
-}
+#include "util/av_pixel_format.h"
 
 LOG_CHANNEL(cellRec);
 

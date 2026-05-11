@@ -16,6 +16,10 @@
 #endif
 #endif
 
+#ifdef ANDROID
+#define VK_NO_PROTOTYPES
+#endif
+
 #ifdef _MSC_VER
 #pragma warning( push )
 #pragma warning( disable : 4005 )
@@ -27,6 +31,12 @@
 #pragma warning(pop)
 #endif
 
+#ifdef ANDROID
+#define VK_ANDROID_FUNC(func) extern PFN_##func func;
+#include "VKAndroidProcTable.h"
+#undef VK_ANDROID_FUNC
+#endif
+
 // Undefine header configuration variables
 #undef VK_USE_PLATFORM_WIN32_KHR
 #undef VK_USE_PLATFORM_METAL_EXT
@@ -35,6 +45,7 @@
 #undef VK_USE_PLATFORM_WAYLAND_KHR
 
 #include <util/types.hpp>
+#include <string>
 
 #if VK_HEADER_VERSION < 287
 constexpr VkDriverId VK_DRIVER_ID_MESA_HONEYKRISP = static_cast<VkDriverId>(26);
@@ -58,6 +69,12 @@ constexpr VkStructureType VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_UNIFORM_BUFFE
 
 namespace vk
 {
+#ifdef ANDROID
+	bool init_android_vulkan_loader(std::string* error = nullptr);
+	void load_android_vulkan_instance_procs(VkInstance instance);
+	void load_android_vulkan_device_procs(VkDevice device);
+#endif
+
 	void init();
 
 	inline VkBool32 to_bool32(bool x) { return x ? VK_TRUE : VK_FALSE; }

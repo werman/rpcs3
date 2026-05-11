@@ -4,7 +4,9 @@
 #include "Utilities/mutex.h"
 #include "Emu/system_config_types.h"
 
+#ifndef WITHOUT_OPENAL
 #include "alc.h"
+#endif
 
 // Error Codes
 enum CellMicInError : u32
@@ -357,7 +359,9 @@ private:
 	struct mic_device
 	{
 		std::string name;
+#ifndef WITHOUT_OPENAL
 		ALCdevice* device = nullptr;
+#endif
 		std::vector<u8> buf;
 	};
 

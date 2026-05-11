@@ -447,11 +447,23 @@ VKGSRender::VKGSRender(utils::serial* ar) noexcept : GSRender(ar)
 	}, display);
 #endif
 
+	const auto create_swapchain = [&](vk::physical_device& gpu) -> vk::swapchain_base*
+	{
+#ifdef ANDROID
+		if (std::get<ANativeWindow*>(display) == nullptr)
+		{
+			return m_instance.create_headless_swapchain(gpu);
+		}
+#endif
+
+		return m_instance.create_swapchain(display, gpu);
+	};
+
 	for (auto &gpu : gpus)
 	{
 		if (gpu.get_name() == adapter_name)
 		{
-			m_swapchain.reset(m_instance.create_swapchain(display, gpu));
+			m_swapchain.reset(create_swapchain(gpu));
 			gpu_found = true;
 			break;
 		}
@@ -459,7 +471,7 @@ VKGSRender::VKGSRender(utils::serial* ar) noexcept : GSRender(ar)
 
 	if (!gpu_found || adapter_name.empty())
 	{
-		m_swapchain.reset(m_instance.create_swapchain(display, gpus[0]));
+		m_swapchain.reset(create_swapchain(gpus[0]));
 	}
 
 	if (!m_swapchain)

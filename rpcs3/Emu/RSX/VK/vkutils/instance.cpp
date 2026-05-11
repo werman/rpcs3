@@ -180,6 +180,11 @@ namespace vk
 				extensions.push_back(VK_KHR_ANDROID_SURFACE_EXTENSION_NAME);
 				found_surface_ext = true;
 			}
+			else
+			{
+				// Native rsx-replay uses a headless swapchain and does not create an Android WSI surface.
+				found_surface_ext = true;
+			}
 #endif
 			if (!found_surface_ext)
 			{
@@ -226,6 +231,10 @@ namespace vk
 
 			return false;
 		}
+
+#ifdef ANDROID
+		vk::load_android_vulkan_instance_procs(m_instance);
+#endif
 
 		return true;
 	}
@@ -398,5 +407,43 @@ namespace vk
 		color_space = surfFormats[0].colorSpace;
 
 		return new swapchain_WSI(dev, present_queue_idx, graphics_queue_idx, transfer_queue_idx, format, m_surface, color_space, !surface_config.supports_automatic_wm_reports);
+	}
+
+	swapchain_base* instance::create_headless_swapchain(vk::physical_device& dev)
+	{
+		const u32 device_queues = dev.get_queue_count();
+		u32 graphics_queue_idx = umax;
+		u32 transfer_queue_idx = umax;
+
+		auto test_queue_family = [&](u32 index, u32 desired_flags)
+		{
+			if (const auto flags = dev.get_queue_properties(index).queueFlags;
+				(flags & desired_flags) == desired_flags)
+			{
+				return true;
+			}
+
+			return false;
+		};
+
+		for (u32 i = 0; i < device_queues; ++i)
+		{
+			if (graphics_queue_idx == umax && test_queue_family(i, VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT))
+			{
+				graphics_queue_idx = i;
+			}
+			else if (transfer_queue_idx == umax && test_queue_family(i, VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT))
+			{
+				transfer_queue_idx = i;
+			}
+		}
+
+		if (graphics_queue_idx == umax)
+		{
+			rsx_log.fatal("Failed to find a suitable graphics queue");
+			return nullptr;
+		}
+
+		return new swapchain_NATIVE(dev, umax, graphics_queue_idx, transfer_queue_idx);
 	}
 }
