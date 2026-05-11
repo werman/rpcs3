@@ -19,6 +19,7 @@
 #include "Emu/RSX/Host/MM.h"
 #include "Emu/RSX/Host/RSXDMAWriter.h"
 #include "Emu/RSX/NV47/HW/context_accessors.define.h"
+#include "Emu/System.h"
 #include "Emu/Memory/vm_locking.h"
 
 #include "../Program/SPIRVCommon.h"
@@ -634,7 +635,10 @@ VKGSRender::VKGSRender(utils::serial* ar) noexcept : GSRender(ar)
 	m_texture_cache.initialize((*m_device), m_device->get_graphics_queue(),
 			m_texture_upload_buffer_ring_info);
 
-	vk::get_overlay_pass<vk::ui_overlay_renderer>()->init(*m_current_command_buffer, m_texture_upload_buffer_ring_info);
+	if (Emu.HasGui() && m_overlay_manager)
+	{
+		vk::get_overlay_pass<vk::ui_overlay_renderer>()->init(*m_current_command_buffer, m_texture_upload_buffer_ring_info);
+	}
 
 	if (shadermode == shader_mode::async_with_interpreter || shadermode == shader_mode::interpreter_only)
 	{

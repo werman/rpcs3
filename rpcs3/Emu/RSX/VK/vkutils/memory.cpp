@@ -172,6 +172,41 @@ namespace vk
 		allocatorInfo.instance = inst;
 		allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_2;
 
+#ifdef ANDROID
+		VmaVulkanFunctions vulkan_functions = {};
+		vulkan_functions.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
+		vulkan_functions.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
+		vulkan_functions.vkGetPhysicalDeviceProperties = vkGetPhysicalDeviceProperties;
+		vulkan_functions.vkGetPhysicalDeviceMemoryProperties = vkGetPhysicalDeviceMemoryProperties;
+		vulkan_functions.vkAllocateMemory = vkAllocateMemory;
+		vulkan_functions.vkFreeMemory = vkFreeMemory;
+		vulkan_functions.vkMapMemory = vkMapMemory;
+		vulkan_functions.vkUnmapMemory = vkUnmapMemory;
+		vulkan_functions.vkFlushMappedMemoryRanges = vkFlushMappedMemoryRanges;
+		vulkan_functions.vkInvalidateMappedMemoryRanges = vkInvalidateMappedMemoryRanges;
+		vulkan_functions.vkBindBufferMemory = vkBindBufferMemory;
+		vulkan_functions.vkBindImageMemory = vkBindImageMemory;
+		vulkan_functions.vkGetBufferMemoryRequirements = vkGetBufferMemoryRequirements;
+		vulkan_functions.vkGetImageMemoryRequirements = vkGetImageMemoryRequirements;
+		vulkan_functions.vkCreateBuffer = vkCreateBuffer;
+		vulkan_functions.vkDestroyBuffer = vkDestroyBuffer;
+		vulkan_functions.vkCreateImage = vkCreateImage;
+		vulkan_functions.vkDestroyImage = vkDestroyImage;
+		vulkan_functions.vkCmdCopyBuffer = vkCmdCopyBuffer;
+#if VMA_DEDICATED_ALLOCATION || VMA_VULKAN_VERSION >= 1001000
+		vulkan_functions.vkGetBufferMemoryRequirements2KHR = vkGetBufferMemoryRequirements2;
+		vulkan_functions.vkGetImageMemoryRequirements2KHR = vkGetImageMemoryRequirements2;
+#endif
+#if VMA_BIND_MEMORY2 || VMA_VULKAN_VERSION >= 1001000
+		vulkan_functions.vkBindBufferMemory2KHR = vkBindBufferMemory2;
+		vulkan_functions.vkBindImageMemory2KHR = vkBindImageMemory2;
+#endif
+#if VMA_MEMORY_BUDGET || VMA_VULKAN_VERSION >= 1001000
+		vulkan_functions.vkGetPhysicalDeviceMemoryProperties2KHR = vkGetPhysicalDeviceMemoryProperties2;
+#endif
+		allocatorInfo.pVulkanFunctions = &vulkan_functions;
+#endif
+
 		std::vector<VkDeviceSize> heap_limits;
 		const auto vram_allocation_limit = g_cfg.video.vk.vram_allocation_limit * 0x100000ull;
 		if (vram_allocation_limit < dev.get_memory_mapping().device_local_total_bytes)

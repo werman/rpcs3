@@ -4,6 +4,7 @@
 #include "vkutils/memory.h"
 #include "Emu/RSX/Overlays/overlay_manager.h"
 #include "Emu/RSX/Overlays/overlay_debug_overlay.h"
+#include "Emu/System.h"
 #include "Emu/Cell/Modules/cellVideoOut.h"
 
 #include "upscalers/bilinear_pass.hpp"
@@ -657,7 +658,7 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 	vk::framebuffer_holder* direct_fbo = nullptr;
 	rsx::simple_array<vk::viewable_image*> calibration_src;
 
-	const bool has_overlay = (m_overlay_manager && m_overlay_manager->has_visible());
+		const bool has_overlay = (Emu.HasGui() && m_overlay_manager && m_overlay_manager->has_visible());
 	const bool user_asked_for_screenshot = g_user_asked_for_screenshot.exchange(false);
 	const bool user_is_recording = (g_recording_mode != recording_mode::stopped && m_frame->can_consume_frame());
 	const bool need_media_capture = user_asked_for_screenshot || user_is_recording;
@@ -878,7 +879,7 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 		}
 	}
 
-	if (g_cfg.video.debug_overlay || has_overlay)
+		if (Emu.HasGui() && (g_cfg.video.debug_overlay || has_overlay))
 	{
 		if (target_layout != VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
 		{
