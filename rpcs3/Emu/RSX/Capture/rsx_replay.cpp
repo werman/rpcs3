@@ -109,7 +109,15 @@ namespace rsx
 			const u32 count = (rc.rsx_command.first >> 18) & 0x7ff;
 			// allocate for register plus w/e number of arguments it has
 			buffer_size += (count * 4) + 4;
+
+			if (!rc.memory_state.empty() || rc.display_buffer_state != 0 || rc.tile_state != 0)
+			{
+				buffer_size += 8;
+			}
 		}
+
+		// Reference marker before the final stop
+		buffer_size += 8;
 
 		// User memory + fifo size
 		buffer_size = utils::align<u32>(buffer_size, 0x100000) + 0x10000000;
@@ -142,6 +150,24 @@ namespace rsx
 		return contextInfo->context_id;
 	}
 
+	// FIFO GET can pass a command before the RSX has executed it: the FIFO cache publishes GET
+	// for a whole fetched batch. NV406E_SET_REFERENCE syncs and then writes REF in command
+	// order, so a REF equal to a stop's marker means everything before that stop has run.
+	static u32 stop_marker(usz stop_index)
+	{
+		return 0x80000000u | static_cast<u32>(stop_index + 1);
+	}
+
+	static void write_stop_marker(vm::ptr<u32>& fifo_addr, u32& current_offset, std::vector<u32>& fifo_stops)
+	{
+		*fifo_addr = (1u << 18) | (NV406E_SET_REFERENCE << 2);
+		fifo_addr++;
+		*fifo_addr = stop_marker(fifo_stops.size());
+		fifo_addr++;
+		current_offset += 8;
+		fifo_stops.emplace_back(current_offset);
+	}
+
 	std::vector<u32> rsx_replay_thread::alloc_write_fifo(be_t<u32> /*context_id*/) const
 	{
 		// copy commands into fifo buffer
@@ -162,7 +188,7 @@ namespace rsx
 					fmt::throw_exception("capture replay: state change not supported between increment commands");
 				}
 
-				fifo_stops.emplace_back(currentOffset);
+				write_stop_marker(fifo_addr, currentOffset, fifo_stops);
 			}
 
 			// spit out command
@@ -183,7 +209,7 @@ namespace rsx
 			}
 		}
 
-		fifo_stops.emplace_back(currentOffset);
+		write_stop_marker(fifo_addr, currentOffset, fifo_stops);
 		return fifo_stops;
 	}
 
@@ -309,10 +335,12 @@ namespace rsx
 			method_registers = frame->reg_state;
 			atomic_fence_seq_cst();
 
+			auto render = get_current_renderer();
+			render->ctrl->ref = 0;
+
 			// start up fifo buffer by dumping the put ptr to first stop
 			sys_rsx_context_attribute(context_id, 0x001, 0x10000000, fifo_stops[0], 0, 0);
 
-			auto render = get_current_renderer();
 			auto last_flip = render->int_flip_index;
 
 			usz stopIdx = 0;
@@ -333,7 +361,7 @@ namespace rsx
 				u64 state_wait_start = get_system_time();
 				u64 state_wait_next_log = 5'000'000;
 #endif
-				while (thread_ctrl::state() != thread_state::aborting && !render->is_fifo_idle() && (render->ctrl->get != fifo_stops[stopIdx]))
+				while (thread_ctrl::state() != thread_state::aborting && render->ctrl->ref != stop_marker(stopIdx))
 				{
 					if (Emu.IsPaused())
 						thread_ctrl::wait_for(10'000);
@@ -371,7 +399,7 @@ namespace rsx
 			u64 idle_wait_start = get_system_time();
 			u64 idle_wait_next_log = 5'000'000;
 #endif
-			while (!render->is_fifo_idle() && thread_ctrl::state() != thread_state::aborting)
+			while (render->ctrl->ref != stop_marker(fifo_stops.size() - 1) && thread_ctrl::state() != thread_state::aborting)
 			{
 				if (Emu.IsPaused())
 					thread_ctrl::wait_for(10'000);
