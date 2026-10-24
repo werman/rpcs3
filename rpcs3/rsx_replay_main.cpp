@@ -57,6 +57,7 @@ namespace
 		std::string config_path;
 		std::string output_prefix;
 		u64 loops = 1;
+		u64 skip_frames = 0;
 	};
 
 	struct queued_main_call
@@ -232,7 +233,7 @@ namespace
 
 	void print_usage(const char* argv0)
 	{
-		std::fprintf(stderr, "usage: %s --rsx-capture <file.rrc[.gz|.zst]> --output-prefix <path-prefix> [--rsx-capture-repeat <n>] [--config <config.yml>]\n", argv0);
+		std::fprintf(stderr, "usage: %s --rsx-capture <file.rrc[.gz|.zst]> --output-prefix <path-prefix> [--rsx-capture-repeat <n>] [--skip-frames <n>] [--config <config.yml>]\n", argv0);
 	}
 
 	bool parse_u64(std::string_view text, u64& value)
@@ -263,6 +264,14 @@ namespace
 				if (!parse_u64(argv[++i], cli.loops))
 				{
 					std::fprintf(stderr, "error: invalid --rsx-capture-repeat value '%s'\n", argv[i]);
+					return false;
+				}
+			}
+			else if (arg == "--skip-frames" && i + 1 < argc)
+			{
+				if (!parse_u64(argv[++i], cli.skip_frames))
+				{
+					std::fprintf(stderr, "error: invalid --skip-frames value '%s'\n", argv[i]);
 					return false;
 				}
 			}
@@ -441,9 +450,16 @@ int main(int argc, char** argv)
 		return 2;
 	}
 
+	if (cli.skip_frames >= cli.loops)
+	{
+		std::fprintf(stderr, "error: --skip-frames must be lower than --rsx-capture-repeat\n");
+		return 2;
+	}
+
 	auto sink = std::make_shared<rsx_replay_frame_sink>();
 	sink->output_prefix = cli.output_prefix;
 	sink->expected_frames = cli.loops;
+	sink->skip_frames = cli.skip_frames;
 
 	auto phase = std::make_shared<std::atomic<replay_phase>>(replay_phase::parsed);
 	scoped_watchdog watchdog(sink, phase);

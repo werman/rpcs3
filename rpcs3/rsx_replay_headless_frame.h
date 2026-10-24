@@ -14,6 +14,8 @@ struct rsx_replay_frame_sink
 	std::atomic<u32> height{720};
 	std::atomic<u32> frame_index{0};
 	std::atomic<u64> expected_frames{0};
+	// Frames below this index are rendered but not written (async shader warm-up)
+	u64 skip_frames = 0;
 	std::atomic<u64> frames_written{0};
 	std::atomic<bool> failed{false};
 	mutable std::mutex error_mutex;

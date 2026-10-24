@@ -156,6 +156,12 @@ void rsx_replay_headless_frame::take_screenshot(std::vector<u8>&& sshot_data, u3
 		return;
 	}
 
+	if (frame_index < m_sink->skip_frames)
+	{
+		m_sink->frames_written++;
+		return;
+	}
+
 	const std::string path = fmt::format("%s%04u.png", m_sink->output_prefix, frame_index);
 
 	FILE* file = std::fopen(path.c_str(), "wb");
