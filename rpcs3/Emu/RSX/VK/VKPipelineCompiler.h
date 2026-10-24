@@ -220,6 +220,7 @@ namespace vk
 	void destroy_pipe_compiler();
 	pipe_compiler* get_pipe_compiler();
 	void wait_for_pipe_compiler_idle();
+	u64 pipe_compiler_submitted();
 }
 
 namespace rpcs3

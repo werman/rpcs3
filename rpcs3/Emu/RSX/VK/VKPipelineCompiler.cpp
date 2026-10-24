@@ -15,6 +15,7 @@ namespace vk
 	atomic_t<int> g_compiler_index{};
 	VkPipelineCache g_pipeline_cache = VK_NULL_HANDLE;
 	atomic_t<u32> g_pipe_compiler_pending{};
+	atomic_t<u64> g_pipe_compiler_submitted{};
 
 	pipe_compiler::pipe_compiler()
 	{
@@ -226,6 +227,7 @@ namespace vk
 		}
 
 		g_pipe_compiler_pending.fetch_add(1);
+		g_pipe_compiler_submitted.fetch_add(1);
 		m_work_queue.push(create_info, cs_inputs, flags, callback);
 		return {};
 	}
@@ -256,6 +258,7 @@ namespace vk
 		}
 
 		g_pipe_compiler_pending.fetch_add(1);
+		g_pipe_compiler_submitted.fetch_add(1);
 		m_work_queue.push(create_info, modules, vs_inputs, fs_inputs, flags, callback);
 		return {};
 	}
@@ -272,6 +275,7 @@ namespace vk
 		}
 
 		g_pipe_compiler_pending.fetch_add(1);
+		g_pipe_compiler_submitted.fetch_add(1);
 		m_work_queue.push(get_create_info, vs_inputs, fs_inputs, flags, callback);
 		return {};
 	}
@@ -380,6 +384,11 @@ namespace vk
 		int thread_index = g_compiler_index++;
 
 		return g_pipe_compilers.get()->begin() + (thread_index % g_num_pipe_compilers);
+	}
+
+	u64 pipe_compiler_submitted()
+	{
+		return g_pipe_compiler_submitted.load();
 	}
 
 	void wait_for_pipe_compiler_idle()

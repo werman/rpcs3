@@ -286,6 +286,10 @@ namespace rsx
 		bool first_frame = true;
 #ifdef ANDROID
 		u64 replay_loop = 0;
+		// Pipelines queued by the loops replayed so far.
+		u64 warmup_submitted = 0;
+		u32 warmup_loops = 0;
+		constexpr u32 max_warmup_loops = 32;
 #endif
 
 		if (use_vulkan && !original_disable_video_output)
@@ -389,13 +393,31 @@ namespace rsx
 			}
 
 #ifdef ANDROID
-			if (first_frame)
+			// The first loop runs with output suppressed, so it queues no pipelines. Draws whose
+			// pipeline is still compiling are skipped, so a loop that queued pipelines is a warm-up
+			// loop: wait for the compiler and replay again before taking screenshots.
+			bool warmup = first_frame;
+			if (use_vulkan && !first_frame && warmup_loops < max_warmup_loops)
+			{
+				warmup = vk::pipe_compiler_submitted() != warmup_submitted;
+			}
+
+			if (warmup)
 			{
 				if (use_vulkan)
 				{
 					vk::wait_for_pipe_compiler_idle();
+					warmup_submitted = vk::pipe_compiler_submitted();
 				}
 
+				if (!first_frame)
+				{
+					warmup_loops++;
+				}
+			}
+
+			if (first_frame)
+			{
 				if (suppress_output)
 				{
 					g_cfg.video.disable_video_output.set(original_disable_video_output);
@@ -405,9 +427,10 @@ namespace rsx
 				first_frame = false;
 			}
 
-			g_user_asked_for_screenshot = true;
-			std::fprintf(stderr, "status: replay_loop=%llu screenshot_requested buffer=%u\n",
-				static_cast<unsigned long long>(current_loop), render->current_display_buffer);
+			g_user_asked_for_screenshot = !warmup;
+			std::fprintf(stderr, "status: replay_loop=%llu %s buffer=%u pipes_submitted=%llu\n",
+				static_cast<unsigned long long>(current_loop), warmup ? "warmup_flip" : "screenshot_requested",
+				render->current_display_buffer, static_cast<unsigned long long>(warmup_submitted));
 			// The flip runs later on the RSX thread. Wait until it has fully finished (flip_status is
 			// set to DONE after the backend flip) so the next loop does not reset state under it.
 			atomic_storage<u32>::store(render->flip_status, CELL_GCM_DISPLAY_FLIP_STATUS_WAITING);
@@ -429,6 +452,12 @@ namespace rsx
 
 			std::fprintf(stderr, "status: replay_loop=%llu screenshot_consumed wait_us=%llu\n",
 				static_cast<unsigned long long>(current_loop), static_cast<unsigned long long>(screenshot_wait_us));
+
+			if (warmup)
+			{
+				thread_ctrl::wait_for(10'000);
+				continue;
+			}
 #else
 			// Check if the captured application used syscall instead of a gcm command to flip
 			if (render->int_flip_index == last_flip)
