@@ -88,6 +88,10 @@ void rsx_replay_headless_frame::toggle_fullscreen()
 {
 }
 
+void rsx_replay_headless_frame::update_title(double)
+{
+}
+
 void rsx_replay_headless_frame::delete_context(draw_context_t)
 {
 }

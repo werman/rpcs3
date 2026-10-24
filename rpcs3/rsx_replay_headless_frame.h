@@ -39,6 +39,7 @@ public:
 	void hide() override;
 	void show() override;
 	void toggle_fullscreen() override;
+	void update_title(double fps = 0.0) override;
 
 	void delete_context(draw_context_t ctx) override;
 	draw_context_t make_context() override;

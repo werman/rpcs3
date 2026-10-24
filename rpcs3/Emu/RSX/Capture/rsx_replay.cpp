@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "rsx_replay.h"
+#include "Emu/emu_callbacks.h"
 
 #include "Emu/System.h"
 #include "Emu/system_config.h"
@@ -235,9 +236,9 @@ namespace rsx
 				}
 			}
 
-			if (display_width && display_height && Emu.GetCallbacks().set_rsx_capture_display_size)
+			if (display_width && display_height && g_emu_callbacks.set_rsx_capture_display_size)
 			{
-				Emu.GetCallbacks().set_rsx_capture_display_size(display_width, display_height);
+				g_emu_callbacks.set_rsx_capture_display_size(display_width, display_height);
 			}
 
 			cs.display_buffer_hash = replay_cmd.display_buffer_state;
@@ -407,10 +408,13 @@ namespace rsx
 			g_user_asked_for_screenshot = true;
 			std::fprintf(stderr, "status: replay_loop=%llu screenshot_requested buffer=%u\n",
 				static_cast<unsigned long long>(current_loop), render->current_display_buffer);
+			// The flip runs later on the RSX thread. Wait until it has fully finished (flip_status is
+			// set to DONE after the backend flip) so the next loop does not reset state under it.
+			atomic_storage<u32>::store(render->flip_status, CELL_GCM_DISPLAY_FLIP_STATUS_WAITING);
 			render->request_emu_flip(render->current_display_buffer);
 
 			u64 screenshot_wait_us = 0;
-			while (g_user_asked_for_screenshot && thread_ctrl::state() != thread_state::aborting)
+			while ((g_user_asked_for_screenshot || atomic_storage<u32>::load(render->flip_status) != CELL_GCM_DISPLAY_FLIP_STATUS_DONE) && thread_ctrl::state() != thread_state::aborting)
 			{
 				const u64 wait_us = Emu.IsPaused() ? 10'000 : 1'000;
 				thread_ctrl::wait_for(wait_us);

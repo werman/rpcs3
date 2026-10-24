@@ -3,10 +3,7 @@
 #include <util/types.hpp>
 #include "algorithm.hpp"
 
-extern "C"
-{
-#include <libavutil/pixfmt.h>
-}
+#include "util/av_pixel_format.h"
 
 namespace rsx
 {

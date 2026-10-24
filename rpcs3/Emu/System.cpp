@@ -996,7 +996,7 @@ bool Emulator::BootRsxCapture(const std::string& path)
 		return false;
 	}
 
-	if (GetCallbacks().set_rsx_capture_display_size)
+	if (g_emu_callbacks.set_rsx_capture_display_size)
 	{
 		bool found_display_size = false;
 
@@ -1018,7 +1018,7 @@ bool Emulator::BootRsxCapture(const std::string& path)
 			{
 				if (dbstate.buffers[i].width && dbstate.buffers[i].height)
 				{
-					GetCallbacks().set_rsx_capture_display_size(dbstate.buffers[i].width, dbstate.buffers[i].height);
+					g_emu_callbacks.set_rsx_capture_display_size(dbstate.buffers[i].width, dbstate.buffers[i].height);
 					found_display_size = true;
 					break;
 				}

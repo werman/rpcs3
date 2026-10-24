@@ -90,7 +90,12 @@ void ps_move_tracker<DiagnosticsEnabled>::set_image_data(const void*, u64, u32, 
 }
 
 template <bool DiagnosticsEnabled>
-void ps_move_tracker<DiagnosticsEnabled>::init_workers()
+void ps_move_tracker<DiagnosticsEnabled>::init_worker(u32)
+{
+}
+
+template <bool DiagnosticsEnabled>
+void ps_move_tracker<DiagnosticsEnabled>::join_worker(u32)
 {
 }
 

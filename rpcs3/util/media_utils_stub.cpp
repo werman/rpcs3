@@ -42,9 +42,9 @@ namespace utils
 	audio_decoder::audio_decoder() = default;
 	audio_decoder::~audio_decoder() = default;
 
-	void audio_decoder::set_context(music_selection_context context)
+	void audio_decoder::set_context(music_selection_context&& context)
 	{
-		m_context = context;
+		m_context = std::move(context);
 	}
 
 	void audio_decoder::set_swap_endianness(bool swapped)
@@ -113,9 +113,10 @@ namespace utils
 		m_out_format = format;
 	}
 
-	void video_encoder::set_video_codec(s32 codec_id)
+	void video_encoder::set_video_codec(s32 codec_id, std::string_view codec_name)
 	{
 		m_video_codec_id = codec_id;
+		m_video_codec_name = codec_name;
 	}
 
 	void video_encoder::set_max_b_frames(s32 max_b_frames)
@@ -143,9 +144,10 @@ namespace utils
 		m_audio_bitrate_bps = bitrate;
 	}
 
-	void video_encoder::set_audio_codec(s32 codec_id)
+	void video_encoder::set_audio_codec(s32 codec_id, std::string_view codec_name)
 	{
 		m_audio_codec_id = codec_id;
+		m_audio_codec_name = codec_name;
 	}
 
 	void video_encoder::pause(bool flush)

@@ -1,14 +1,26 @@
 #include "stdafx.h"
 
+#include "Emu/emu_callbacks.h"
 #include "Emu/System.h"
 #include "Emu/system_config.h"
 #include "Emu/RSX/VK/VKGSRender.h"
 #include "Emu/RSX/VK/VulkanAPI.h"
 #include "Emu/Io/Null/null_music_handler.h"
+#include "Emu/Io/camera_handler_base.h"
+#include "Emu/Audio/AudioBackend.h"
+#include "Emu/Audio/audio_device_enumerator.h"
+#include "Emu/Audio/Null/NullAudioBackend.h"
+#include "Emu/Audio/Null/null_enumerator.h"
+#include "Emu/Cell/Modules/cellOskDialog.h"
+#include "Emu/Cell/Modules/sceNp.h"
 #include "Input/pad_thread.h"
 #include "Utilities/File.h"
 #include "Utilities/Thread.h"
 #include "rsx_replay_headless_frame.h"
+
+extern std::string g_android_executable_dir;
+extern std::string g_android_config_dir;
+extern std::string g_android_cache_dir;
 
 #include <charconv>
 #include <chrono>
@@ -18,6 +30,8 @@
 #include <deque>
 #include <mutex>
 #include <thread>
+
+#include <unistd.h>
 
 LOG_CHANNEL(sys_log, "SYS");
 
@@ -146,6 +160,27 @@ namespace
 		}
 	};
 
+	// A fatal error kills only the faulting thread (usually RSX), so the emulator never stops on its own.
+	// Fail the replay on the first fatal message instead of waiting for the frames until a timeout.
+	class fatal_log_listener final : public logs::listener
+	{
+		std::shared_ptr<rsx_replay_frame_sink> m_sink;
+
+	public:
+		explicit fatal_log_listener(std::shared_ptr<rsx_replay_frame_sink> sink)
+			: m_sink(std::move(sink))
+		{
+		}
+
+		void log(u64, const logs::message& msg, std::string_view, std::string_view text) override
+		{
+			if (msg == logs::level::fatal && !m_sink->failed.load())
+			{
+				m_sink->set_error(fmt::format("fatal: %s", text));
+			}
+		}
+	};
+
 	class scoped_watchdog
 	{
 		std::atomic<bool> m_running{true};
@@ -259,9 +294,56 @@ namespace
 		return true;
 	}
 
+	std::string dir_from_env(const char* name, std::string_view home_suffix)
+	{
+		std::string dir;
+		if (const char* value = std::getenv(name); value && *value)
+		{
+			dir = value;
+		}
+		else
+		{
+			const char* home = std::getenv("HOME");
+			dir = std::string(home && *home ? home : ".") + "/" + std::string(home_suffix);
+		}
+
+		if (dir.back() != '/')
+		{
+			dir += '/';
+		}
+
+		return dir;
+	}
+
+	// Android builds read these instead of resolving XDG paths (see Utilities/File.cpp).
+	bool init_android_dirs()
+	{
+		char exe_path[4096]{};
+		if (::readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1) <= 0)
+		{
+			std::fprintf(stderr, "error: failed to resolve /proc/self/exe\n");
+			return false;
+		}
+
+		g_android_executable_dir = fs::get_parent_dir(exe_path) + "/";
+		g_android_config_dir = dir_from_env("RPCS3_CONFIG_DIR", ".config/rpcs3");
+		g_android_cache_dir = dir_from_env("RPCS3_CACHE_DIR", ".cache/rpcs3");
+
+		for (const std::string& dir : {g_android_config_dir, g_android_cache_dir})
+		{
+			if (!fs::create_path(dir))
+			{
+				std::fprintf(stderr, "error: failed to create %s (%s)\n", dir.c_str(), fs::g_tls_error);
+				return false;
+			}
+		}
+
+		return true;
+	}
+
 	void configure_callbacks(const std::shared_ptr<rsx_replay_frame_sink>& sink, const std::shared_ptr<main_thread_dispatcher>& dispatcher)
 	{
-		EmuCallbacks callbacks{};
+		emu_callbacks callbacks{};
 
 		callbacks.call_from_main_thread = [dispatcher](std::function<void()> func, atomic_t<u32>* wake_up)
 		{
@@ -321,8 +403,8 @@ namespace
 		callbacks.save_emu_settings = []() {};
 		callbacks.get_camera_handler = []() -> std::shared_ptr<camera_handler_base> { return nullptr; };
 		callbacks.get_music_handler = []() -> std::shared_ptr<music_handler_base> { return std::make_shared<null_music_handler>(); };
-		callbacks.get_audio = []() -> std::shared_ptr<AudioBackend> { return nullptr; };
-		callbacks.get_audio_enumerator = [](u64) -> std::shared_ptr<audio_device_enumerator> { return nullptr; };
+		callbacks.get_audio = []() -> std::shared_ptr<AudioBackend> { return std::make_shared<NullAudioBackend>(); };
+		callbacks.get_audio_enumerator = [](u64) -> std::shared_ptr<audio_device_enumerator> { return std::make_shared<null_enumerator>(); };
 		callbacks.get_msg_dialog = []() -> std::shared_ptr<MsgDialogBase> { return nullptr; };
 		callbacks.get_osk_dialog = []() -> std::shared_ptr<OskDialogBase> { return nullptr; };
 		callbacks.get_sendmessage_dialog = []() -> std::shared_ptr<SendMessageDialogBase> { return nullptr; };
@@ -335,14 +417,14 @@ namespace
 		callbacks.get_image_info = [](const std::string&, std::string&, s32&, s32&, s32&) { return false; };
 		callbacks.get_scaled_image = [](const std::string&, s32, s32, s32&, s32&, u8*, bool) { return false; };
 		callbacks.get_font_dirs = []() { return std::vector<std::string>{}; };
-		callbacks.on_install_pkgs = [](const std::vector<std::string>&) { return false; };
+		callbacks.on_install_pkgs = [](const std::vector<std::string>&, bool) { return false; };
 		callbacks.add_breakpoint = [](u32) {};
 		callbacks.display_sleep_control_supported = []() { return false; };
 		callbacks.enable_display_sleep = [](bool) {};
 		callbacks.check_microphone_permissions = []() {};
 		callbacks.enable_gamemode = [](bool) {};
 
-		Emu.SetCallbacks(std::move(callbacks));
+		g_emu_callbacks = std::move(callbacks);
 	}
 }
 
@@ -372,6 +454,19 @@ int main(int argc, char** argv)
 		std::fprintf(stderr, "status: phase=%s\n", phase_name(next));
 	};
 
+	if (!init_android_dirs())
+	{
+		return 1;
+	}
+
+	// RPCS3.log in the cache dir, capped like rpcs3.cpp does it
+	fs::device_stat log_stats{};
+	fs::statfs(fs::get_cache_dir(), log_stats);
+	auto log_file = logs::make_file_listener(fs::get_cache_dir() + "RPCS3.log", std::max<u64>(log_stats.avail_free / 4, 64 * 1024 * 1024));
+
+	// Listeners stay registered until exit
+	logs::listener::add(new fatal_log_listener(sink));
+
 	set_phase(replay_phase::vulkan_loader);
 	std::string vulkan_error;
 	if (!vk::init_android_vulkan_loader(&vulkan_error))
@@ -386,6 +481,7 @@ int main(int argc, char** argv)
 
 	set_phase(replay_phase::emu_init);
 	Emu.SetHasGui(false);
+	Emu.SetSupportedRenderers({video_renderer::null, video_renderer::vulkan});
 	Emu.SetUsr("00000001");
 	Emu.Init();
 	if (!cli.config_path.empty())
@@ -412,6 +508,10 @@ int main(int argc, char** argv)
 	g_cfg.video.stretch_to_display_area.set(true);
 	g_cfg.video.disable_video_output.set(false);
 	g_cfg.misc.use_native_interface.set(false);
+	g_cfg.audio.renderer.set(audio_renderer::null);
+
+	// BootRsxCapture re-runs Emu.Init(), which reloads the global config from the config dir.
+	Emulator::SaveSettings(g_cfg.to_string(), {});
 
 	Emu.SetRsxCaptureReplayLimit(0);
 
@@ -454,20 +554,24 @@ int main(int argc, char** argv)
 	dispatcher->drain();
 	set_phase(replay_phase::done);
 
+	int exit_code = 0;
+
 	if (sink->failed.load())
 	{
 		std::fprintf(stderr, "error: %s\n", sink->get_error().c_str());
-		return 1;
+		exit_code = 1;
 	}
-
-	if (sink->expected_frames.load() && !sink->is_complete())
+	else if (sink->expected_frames.load() && !sink->is_complete())
 	{
 		std::fprintf(stderr,
 			"error: replay stopped after writing %llu/%llu frame(s)\n",
 			static_cast<unsigned long long>(sink->frames_written.load()),
 			static_cast<unsigned long long>(sink->expected_frames.load()));
-		return 1;
+		exit_code = 1;
 	}
 
-	return 0;
+	// Static destructors free Vulkan memory after the VMM bookkeeping is gone, so skip them.
+	log_file.reset();
+	std::fflush(nullptr);
+	std::_Exit(exit_code);
 }
