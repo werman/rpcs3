@@ -55,6 +55,9 @@ DYNAMIC_IMPORT_RENAME("Kernel32.dll", SetThreadDescriptionImport, "SetThreadDesc
 #include <sys/resource.h>
 #include <time.h>
 #endif
+#ifdef ANDROID
+#include "stack_trace.h"
+#endif
 #ifdef __linux__
 #include <sys/syscall.h>
 #include <sys/timerfd.h>
@@ -2609,6 +2612,13 @@ static void signal_handler(int /*sig*/, siginfo_t* info, void* uct) noexcept
 
 	std::string msg = fmt::format("Segfault %s location %p at %p.\n", cause, info->si_addr, RIP(context));
 
+#if defined(ANDROID) && defined(ARCH_ARM64)
+	for (const auto& [name, pc] : {std::pair{"pc", static_cast<u64>(context->uc_mcontext.pc)}, std::pair{"lr", static_cast<u64>(context->uc_mcontext.regs[30])}})
+	{
+		fmt::append(msg, "%s: %s\n", name, utils::get_backtrace_symbols({reinterpret_cast<void*>(pc)})[0]);
+	}
+#endif
+
 	if (vm::try_get_addr(info->si_addr).second)
 	{
 		fmt::append(msg, "Sudo Addr: %p, VM Addr: %p\n", vm::g_sudo_addr, vm::g_base_addr);
@@ -3437,6 +3447,18 @@ void thread_ctrl::set_name(std::string name)
 [[noreturn]] void thread_ctrl::emergency_exit(std::string_view reason)
 {
 	// Print stacktrace
+#ifdef ANDROID
+	{
+		std::string trace = "Android backtrace:\n";
+		for (const std::string& frame : utils::get_backtrace_symbols(utils::get_backtrace(64)))
+		{
+			fmt::append(trace, "  %s\n", frame);
+		}
+
+		sys_log.notice("%s", trace);
+		std::fprintf(stderr, "%s", trace.c_str());
+	}
+#endif
 #ifdef __cpp_lib_stacktrace
 	if (rpcs3::is_local_build())
 	{

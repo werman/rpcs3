@@ -8,7 +8,13 @@
 #include <DbgHelp.h>
 #include <codecvt>
 #else
+#ifdef ANDROID
+#include <unwind.h>
+#include <dlfcn.h>
+#include <cstring>
+#else
 #include <execinfo.h>
+#endif
 #endif
 
 namespace utils
@@ -176,6 +182,30 @@ namespace utils
 #ifndef ANDROID
 		int depth = backtrace(result.data(), max_depth);
 		result.resize(depth);
+#else
+		struct unwind_state
+		{
+			std::vector<void*>* out;
+			usz depth;
+		} state{&result, 0};
+
+		_Unwind_Backtrace([](_Unwind_Context* ctx, void* arg) -> _Unwind_Reason_Code
+		{
+			auto* st = static_cast<unwind_state*>(arg);
+			if (st->depth >= st->out->size())
+			{
+				return _URC_END_OF_STACK;
+			}
+
+			if (const uptr pc = _Unwind_GetIP(ctx))
+			{
+				(*st->out)[st->depth++] = reinterpret_cast<void*>(pc);
+			}
+
+			return _URC_NO_REASON;
+		}, &state);
+
+		result.resize(state.depth);
 #endif
 		return result;
 	}
@@ -183,7 +213,24 @@ namespace utils
 	std::vector<std::string> get_backtrace_symbols(const std::vector<void*>& stack)
 	{
 		std::vector<std::string> result;
-#ifndef ANDROID
+#ifdef ANDROID
+		result.reserve(stack.size());
+
+		// No symbol tables in the shipped binary: print module-relative offsets for llvm-addr2line
+		for (void* pc : stack)
+		{
+			Dl_info info{};
+			if (dladdr(pc, &info) && info.dli_fbase)
+			{
+				const char* slash = info.dli_fname ? std::strrchr(info.dli_fname, '/') : nullptr;
+				result.push_back(fmt::format("%p %s+0x%x", pc, slash ? slash + 1 : (info.dli_fname ? info.dli_fname : "?"), reinterpret_cast<uptr>(pc) - reinterpret_cast<uptr>(info.dli_fbase)));
+			}
+			else
+			{
+				result.push_back(fmt::format("%p", pc));
+			}
+		}
+#else
 		result.reserve(stack.size());
 
 		const auto symbols = backtrace_symbols(stack.data(), static_cast<int>(stack.size()));
