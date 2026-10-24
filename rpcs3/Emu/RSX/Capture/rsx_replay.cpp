@@ -313,9 +313,7 @@ namespace rsx
 			sys_rsx_context_attribute(context_id, 0x001, 0x10000000, fifo_stops[0], 0, 0);
 
 			auto render = get_current_renderer();
-#ifndef ANDROID
 			auto last_flip = render->int_flip_index;
-#endif
 
 			usz stopIdx = 0;
 			for (const auto& replay_cmd : frame->replay_commands)
@@ -427,14 +425,17 @@ namespace rsx
 				first_frame = false;
 			}
 
+			// Like the desktop replay, present buffer 1 when the capture did not flip by itself.
+			const u32 flip_buffer = render->int_flip_index == last_flip ? 1u : render->current_display_buffer;
+
 			g_user_asked_for_screenshot = !warmup;
 			std::fprintf(stderr, "status: replay_loop=%llu %s buffer=%u pipes_submitted=%llu\n",
 				static_cast<unsigned long long>(current_loop), warmup ? "warmup_flip" : "screenshot_requested",
-				render->current_display_buffer, static_cast<unsigned long long>(warmup_submitted));
+				flip_buffer, static_cast<unsigned long long>(warmup_submitted));
 			// The flip runs later on the RSX thread. Wait until it has fully finished (flip_status is
 			// set to DONE after the backend flip) so the next loop does not reset state under it.
 			atomic_storage<u32>::store(render->flip_status, CELL_GCM_DISPLAY_FLIP_STATUS_WAITING);
-			render->request_emu_flip(render->current_display_buffer);
+			render->request_emu_flip(flip_buffer);
 
 			u64 screenshot_wait_us = 0;
 			while ((g_user_asked_for_screenshot || atomic_storage<u32>::load(render->flip_status) != CELL_GCM_DISPLAY_FLIP_STATUS_DONE) && thread_ctrl::state() != thread_state::aborting)
