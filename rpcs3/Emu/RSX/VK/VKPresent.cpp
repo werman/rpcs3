@@ -544,6 +544,9 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 	vk::viewable_image* image_to_flip = nullptr;
 	vk::viewable_image* image_to_flip2 = nullptr;
 
+	vk::present_surface_info present_query{};
+	vk::present_surface_info present_query2{};
+
 	if (info.buffer < display_buffers_count && buffer_width && buffer_height)
 	{
 		vk::present_surface_info present_info
@@ -555,6 +558,7 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 			.pitch = buffer_pitch,
 			.eye = 0
 		};
+		present_query = present_info;
 		image_to_flip = get_present_source(&present_info, avconfig);
 
 		if (avconfig.stereo_enabled) [[unlikely]]
@@ -569,6 +573,7 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 				present_info.address = rsx::get_address(image_offset, CELL_GCM_LOCATION_LOCAL);
 				present_info.eye = 1;
 
+				present_query2 = present_info;
 				image_to_flip2 = get_present_source(&present_info, avconfig);
 			}
 			else
@@ -754,6 +759,15 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 		image_to_copy->pop_layout(*m_current_command_buffer);
 
 		flush_command_queue(true);
+
+		// The hard sync retires the current eid, which frees present sources that get_present_source
+		// handed to the resource manager (memory uploads and format-cast copies). Resolve them again.
+		image_to_flip = get_present_source(&present_query, avconfig);
+		if (image_to_flip2)
+		{
+			image_to_flip2 = get_present_source(&present_query2, avconfig);
+		}
+
 		const auto src = sshot_vkbuf.map(0, sshot_size);
 		std::vector<u8> sshot_frame(sshot_size);
 		memcpy(sshot_frame.data(), src, sshot_size);
